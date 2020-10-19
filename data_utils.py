@@ -46,9 +46,6 @@ class MelodyLoader:
             return None
         
 
-
-
-
 class ContourSet:
     def __init__(self, path, song_ids=[], num_aug_samples=4, num_neg_samples=4, quantized=True, pre_load=False, set_type='entire'):
         if not pre_load:
@@ -72,11 +69,11 @@ class ContourSet:
             #     self.contours.append(i)
 
         else:
-            with open(path, 'rb') as f:
-                self.contours = json.load(f)
+            self.contours = path
         self.num_neg_samples = num_neg_samples
         self.num_aug_samples = num_aug_samples
-        self.aug_types = ['different_tempo', 'different_key', 'different_std', 'addition', 'masking']
+        # self.aug_types = ['different_tempo', 'different_key', 'different_std', 'addition', 'masking']
+        self.aug_types = ['different_tempo', 'different_key']
         self.down_f = 10
         self.set_type = set_type
 
@@ -103,6 +100,12 @@ class ContourSet:
         return len(self.contours)
 
     def __getitem__(self, index):
+        """
+        for training:
+        return: (downsampled_melody, [augmented_melodies], [negative_sampled_melodies])
+        for validation:
+        return: ([augmented_melodies], [selected_song_id])
+        """
         selected_melody = self.contours[index]['melody']
         selected_is_vocal = self.contours[index]['is_vocal']
         selected_song_id = self.contours[index]['song_id']
@@ -114,7 +117,11 @@ class ContourSet:
         aug_samples = []
         neg_samples = []
         
-        sampled_aug_types = random.sample(self.aug_types, self.num_aug_samples)
+        # augmenting melodies
+        if len(self.aug_types) <= self.num_aug_samples:
+            sampled_aug_types = self.aug_types
+        else:
+            sampled_aug_types = random.sample(self.aug_types, self.num_aug_samples)
         for aug_type in sampled_aug_types:
             if aug_type == 'different_tempo':
                 aug_melody = getattr(mel_aug, 'with_different_tempo')(selected_melody, selected_is_vocal)
@@ -126,6 +133,7 @@ class ContourSet:
         if self.set_type == 'valid':
             return aug_samples, [selected_song_id] * len(aug_samples)
 
+        # sampling negative melodies
         while len(neg_samples) < self.num_neg_samples:
             neg_idx = random.randint(0, len(self)-1)
             if self.contours[neg_idx]['song_id'] != selected_song_id:
@@ -153,8 +161,13 @@ class ContourCollate:
         """Collate's training batch from melody
         ------
         batch: list of [anchor_mel, [pos_mels], [neg_mels]]
+
+        for validation set or entire set"
+        return [melodies], [song_ids]
+
         """
-        if self.num_neg == 0: # entire_set or valid_set with only pos_samples
+        # entire_set or valid_set with only pos_samples
+        if self.num_neg == 0: 
             if self.num_pos != 0:
                 out = [torch.Tensor(y) for x in batch for y in x[0]]
                 song_ids = torch.LongTensor([y for x in batch for y in x[1] ])
@@ -162,19 +175,23 @@ class ContourCollate:
                 out = [torch.Tensor(x[0]) for x in batch]
                 song_ids = torch.LongTensor([x[1] for x in batch])
             padded_sequence = torch.nn.utils.rnn.pad_sequence(out, batch_first=True)
-            input_lengths = torch.LongTensor([torch.max(padded_sequence[i, :].data.nonzero())+1 for i in range(padded_sequence.size(0))])
+            # input_lengths = torch.LongTensor([torch.max(padded_sequence[i, :].data.nonzero())+1 for i in range(padded_sequence.size(0))])
+            input_lengths = torch.LongTensor([torch.max(torch.nonzero(padded_sequence[i, :].data))+1 for i in range(padded_sequence.size(0))])
+
             input_lengths, sorted_idx = input_lengths.sort(0, descending=True)
             padded_sequence = padded_sequence[sorted_idx]
             song_ids = song_ids[sorted_idx]
             packed_data =  torch.nn.utils.rnn.pack_padded_sequence(padded_sequence, input_lengths, batch_first=True, enforce_sorted=False)
             return packed_data, song_ids
 
-        if isinstance(batch[0][1], list): # if neg_mels are list
+        #  training set with multiple negative sampels
+        elif isinstance(batch[0][1], list): # if neg_samples are list
             total = [ [torch.Tensor(x[0])] + self.to_tensor_list(x[1]) + self.to_tensor_list(x[2]) for x in batch ]
-            total_flattend = [y for x in total for y in x]
-            padded_sequence = torch.nn.utils.rnn.pad_sequence(total_flattend, batch_first=True)
+            total_flattened = [y for x in total for y in x]
+            padded_sequence = torch.nn.utils.rnn.pad_sequence(total_flattened, batch_first=True)
             # padded_sequence = padded_sequence.reshape([len(total), -1, padded_sequence.shape[1], padded_sequence.shape[2]] )
-            input_lengths = torch.LongTensor([torch.max(padded_sequence[i, :].data.nonzero())+1 for i in range(padded_sequence.size(0))])
+            # input_lengths = torch.LongTensor([torch.max(padded_sequence[i, :].data.nonzero())+1 for i in range(padded_sequence.size(0))])
+            input_lengths = torch.LongTensor([torch.max(torch.nonzero(padded_sequence[i, :].data))+1 for i in range(padded_sequence.size(0))])
             input_lengths, sorted_idx = input_lengths.sort(0, descending=True)
             padded_sequence = padded_sequence[sorted_idx]
             packed_data =  torch.nn.utils.rnn.pack_padded_sequence(padded_sequence, input_lengths, batch_first=True, enforce_sorted=False)

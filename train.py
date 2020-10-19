@@ -4,7 +4,7 @@ import argparse
 import pickle
 
 from math import inf as mathinf
-from json import dump as json_dump, load as json_load
+from simplejson import dump as json_dump, load as json_load
 import numpy as np
 from tqdm import tqdm
 from numpy import finfo
@@ -16,10 +16,10 @@ from torch.utils.data import DataLoader
 from adamp import AdamP
 
 from model import ContourEncoder
-from melody_utils import MelodyDataset, MelodyCollate, MelodyPreSet, ContourSet, ContourCollate, pad_collate
+from data_utils import ContourSet, ContourCollate, pad_collate
 from torch.optim.lr_scheduler import StepLR
-from logger import AutoEncoderLogger
-from hparams import create_hparams, HParams
+from logger import Logger
+from hparams import HParams
 from loss_function import SiameseLoss
 from validation import get_contour_embeddings, cal_ndcg, cal_ndcg_single
 
@@ -29,10 +29,11 @@ from metalearner.api import scalars
 
 def prepare_dataloaders(hparams, valid_only=False):
     # Get data, data loaders and collate function ready
-
-    trainset = ContourSet(hparams.contour_path, set_type='train', pre_load=True)
-    entireset = ContourSet(hparams.contour_path, set_type='entire', pre_load=True, num_aug_samples=0, num_neg_samples=0)
-    validset =  ContourSet(hparams.contour_path, set_type='valid', pre_load=True, num_aug_samples=4, num_neg_samples=0)
+    with open(hparams.contour_path, 'rb') as f:
+        pre_loaded_data = json_load(f)
+    trainset = ContourSet(pre_loaded_data, set_type='train', pre_load=True)
+    entireset = ContourSet(pre_loaded_data, set_type='entire', pre_load=True, num_aug_samples=0, num_neg_samples=0)
+    validset =  ContourSet(pre_loaded_data, set_type='valid', pre_load=True, num_aug_samples=4, num_neg_samples=0)
 
     train_loader = DataLoader(trainset, hparams.batch_size, shuffle=True,num_workers=hparams.num_workers,
         collate_fn=ContourCollate(hparams.num_pos_samples, hparams.num_neg_samples), pin_memory=True)
@@ -44,21 +45,16 @@ def prepare_dataloaders(hparams, valid_only=False):
     return train_loader, valid_loader, entire_loader #, comparison_loader, collate_fn
     # return train_loader, #valid_loader, list_collate_fn
 
-
 def prepare_directories_and_logger(output_directory, log_directory,):
     print(output_directory, log_directory)
-    logger = AutoEncoderLogger(output_directory / log_directory)
+    logger = Logger(output_directory / log_directory)
     return logger
-
 
 def load_model(hparams):
     model = ContourEncoder(hparams).cuda()
     if hparams.data_parallel:
         model = torch.nn.DataParallel(model)
-
     return model
-
-
 
 def load_checkpoint(checkpoint_path, model, optimizer):
     assert os.path.isfile(checkpoint_path)
@@ -71,7 +67,6 @@ def load_checkpoint(checkpoint_path, model, optimizer):
     print("Loaded checkpoint '{}' from iteration {}" .format(
         checkpoint_path, iteration))
     return model, optimizer, learning_rate, iteration
-
 
 def save_checkpoint(model, optimizer, learning_rate, iteration, filepath):
     print("Saving model and optimizer state at iteration {} to {}".format(
@@ -90,7 +85,6 @@ def save_hparams(hparams, output_dir):
     #     json_dump(hparams.to_json(), f, ensure_ascii=False)
     with open(output_name, 'wb') as f:
         pickle.dump(hparams, f)
-
 
 def load_hparams(checkpoint_path):
     if isinstance(checkpoint_path, str):
@@ -129,34 +123,23 @@ def validate(model, val_loader, entire_loader, logger, epoch, iteration, criteri
     model.eval()
     valid_loss = 0
     with torch.no_grad():
-        if not 'melody' in hparams.model_code:
-            total_embs, total_song_ids = get_contour_embeddings(model, entire_loader)
-        for j, batch in enumerate(tqdm(val_loader)):
-            if 'melody' in hparams.model_code:
-                batch = batch.cuda()
-                if hparams.data_parallel:
-                    pitch_decoded, duration_decoded, input_lengths = model.module.validate(batch)
-                else:
-                    pitch_decoded, duration_decoded, input_lengths = model.validate(batch)
-                loss = sum([criterion(pitch_decoded[i:i+1,:,:input_lengths[i]], batch[i:i+1,:input_lengths[i],0 ]) 
-                            for i in range(batch.shape[0]) ]) / batch.shape[0]
-                loss += sum([criterion(duration_decoded[i:i+1,:,:input_lengths[i]], batch[i:i+1,:input_lengths[i],1])
-                            for i in range(batch.shape[0]) ]) / batch.shape[0]
-                valid_loss += loss.item()
-            else:
-                contours, song_ids = batch
-                anchor = model(contours.cuda())
-                anchor_norm = anchor / anchor.norm(dim=1)[:, None]
-                similarity = torch.mm(anchor_norm, total_embs.transpose(0,1))
-                recommends = torch.topk(similarity, k=hparams.num_recom, dim=-1)[1]
-                recommends = total_song_ids[recommends]
-                ndcg = [cal_ndcg_single(recommends[i,:], song_ids[i]) for i in range(recommends.shape[0])]
-                ndcg = sum(ndcg) / len(ndcg)
-                valid_loss += ndcg
+
+        total_embs, total_song_ids = get_contour_embeddings(model, entire_loader)
+        # for j, batch in enumerate(tqdm(val_loader)):
+        for j, batch in enumerate(val_loader):
+            contours, song_ids = batch
+            anchor = model(contours.cuda())
+            anchor_norm = anchor / anchor.norm(dim=1)[:, None]
+            similarity = torch.mm(anchor_norm, total_embs.transpose(0,1))
+            recommends = torch.topk(similarity, k=hparams.num_recom, dim=-1)[1]
+            recommends = total_song_ids[recommends]
+            ndcg = [cal_ndcg_single(recommends[i,:], song_ids[i]) for i in range(recommends.shape[0])]
+            ndcg = sum(ndcg) / len(ndcg)
+            valid_loss += ndcg
 
         valid_loss = valid_loss/(j+1)
     model.train()
-    print("Valdiation Loss {}: {:5f} ".format(iteration, valid_loss))
+    print("Valdiation nDCG {}: {:5f} ".format(iteration, valid_loss))
     # if 'siamese' in hparams.model_code:
     #     print("Validation loss {}: {:9f}  ".format(iteration, valid_ndcg))
     # else:
@@ -192,19 +175,10 @@ def train(output_directory, log_directory, checkpoint_path, warm_start, hparams)
     if hparams.optimizer_type.lower() == 'adamp':
         optimizer = AdamP(model.parameters(), lr=learning_rate,
                                     weight_decay=hparams.weight_decay)
-    # elif hparams.optimizer_type.lower() == 'adam':
     else:
         optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate,
                                     weight_decay=hparams.weight_decay)
-    # elif hparams.optimizer_type.lower() == 'sgdp':
-    #     optimizer = SGDP(model.parameters(), lr=learning_rate,
-    #                                 weight_decay=hparams.weight_decay, momentum=hparams.momentum)
-    # elif hparams.optimizer_type.lower() == 'sgd':
-    #     optimizer = torch.optim.SGD(model.parameters(), lr=learning_rate,
-    #                                 weight_decay=hparams.weight_decay, momentum=hparams.momentum)   
 
-
-    # criterion = torch.nn.CrossEntropyLoss().to('cuda')
     logger = prepare_directories_and_logger(output_directory, log_directory)
     save_hparams(hparams, output_directory)
     train_loader, val_loader, entire_loader = prepare_dataloaders(hparams)
@@ -230,10 +204,7 @@ def train(output_directory, log_directory, checkpoint_path, warm_start, hparams)
     scheduler = StepLR(optimizer, step_size=hparams.learning_rate_decay_steps,
                        gamma=hparams.learning_rate_decay_rate)
     model.train()
-    if 'melody' in hparams.model_code:
-        criterion = torch.nn.CrossEntropyLoss()
-    else:
-        criterion = SiameseLoss(margin=0.5)
+    criterion = SiameseLoss(margin=0.5)
     best_valid_loss = mathinf
     # ================ MAIN TRAINNIG LOOP! ===================
     for epoch in range(epoch_offset, hparams.epochs):
@@ -243,17 +214,10 @@ def train(output_directory, log_directory, checkpoint_path, warm_start, hparams)
             model.zero_grad()
             batch = batch.cuda()
 
-            if 'melody' in hparams.model_code:
-                pitch_decoded, duration_decoded, input_lengths = model(batch)
-                # batch = batch[sorted_idx]
-                loss = sum([criterion(pitch_decoded[i:i+1,:,:input_lengths[i]], batch[i:i+1,:input_lengths[i],0 ]) for i in range(batch.shape[0]) ]) / batch.shape[0]
-                # loss = criterion(pitch_decoded, batch[:,:,0])
-                loss += sum([criterion(duration_decoded[i:i+1,:,:input_lengths[i]], batch[i:i+1,:input_lengths[i],1]) for i in range(batch.shape[0]) ]) / batch.shape[0]
-                # loss += criterion(duration_decoded, batch[:,:,1])
-            else:
-                anchor, pos, neg = model.siamese(batch)
-                loss = criterion(anchor, pos, neg)
+            anchor, pos, neg = model.siamese(batch)
+            loss = criterion(anchor, pos, neg)
             reduced_loss = loss.item()
+            print('Iter {} - Loss: {:.5f}'.format(iteration, reduced_loss))
             loss.backward()
             grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), hparams.grad_clip_thresh)
             optimizer.step()
@@ -316,7 +280,7 @@ if __name__ == '__main__':
     parser.add_argument('--weight_decay', type=float, default=1e-6)
     parser.add_argument('--momentum', type=float, default=0.9)
     parser.add_argument('--drop_out', type=float, default=0.2)
-    parser.add_argument('--num_workers', type=int, default=16)        
+    parser.add_argument('--num_workers', type=int, default=4)        
     parser.add_argument('--model_code', type=str, default="contour_ae")
     parser.add_argument('--optimizer_type', type=str, default="adam")
     parser.add_argument('--num_neg_samples', type=int, default=4)
