@@ -15,7 +15,7 @@ import torch
 from torch.utils.data import DataLoader
 from adamp import AdamP
 
-from model import ContourEncoder
+from model import ContourEncoder, CnnEncoder
 from data_utils import ContourSet, ContourCollate, pad_collate
 from torch.optim.lr_scheduler import StepLR
 from logger import Logger
@@ -31,16 +31,16 @@ def prepare_dataloaders(hparams, valid_only=False):
     # Get data, data loaders and collate function ready
     with open(hparams.contour_path, 'rb') as f:
         pre_loaded_data = json_load(f)
-    trainset = ContourSet(pre_loaded_data, set_type='train', pre_load=True)
+    trainset = ContourSet(pre_loaded_data, set_type='train', pre_load=True, num_aug_samples=hparams.num_pos_samples, num_neg_samples=hparams.num_neg_samples)
     entireset = ContourSet(pre_loaded_data, set_type='entire', pre_load=True, num_aug_samples=0, num_neg_samples=0)
     validset =  ContourSet(pre_loaded_data, set_type='valid', pre_load=True, num_aug_samples=4, num_neg_samples=0)
 
     train_loader = DataLoader(trainset, hparams.batch_size, shuffle=True,num_workers=hparams.num_workers,
-        collate_fn=ContourCollate(hparams.num_pos_samples, hparams.num_neg_samples), pin_memory=True)
+        collate_fn=ContourCollate(hparams.num_pos_samples, hparams.num_neg_samples, for_cnn=True), pin_memory=True)
     entire_loader = DataLoader(entireset, hparams.valid_batch_size, shuffle=False,num_workers=hparams.num_workers,
-        collate_fn=ContourCollate(0, 0), pin_memory=True, drop_last=False)
+        collate_fn=ContourCollate(0, 0, for_cnn=True), pin_memory=True, drop_last=False)
     valid_loader = DataLoader(validset, hparams.valid_batch_size, shuffle=False,num_workers=hparams.num_workers,
-        collate_fn=ContourCollate(hparams.num_pos_samples, 0), pin_memory=True, drop_last=False)
+        collate_fn=ContourCollate(hparams.num_pos_samples, 0, for_cnn=True), pin_memory=True, drop_last=False)
 
     return train_loader, valid_loader, entire_loader #, comparison_loader, collate_fn
     # return train_loader, #valid_loader, list_collate_fn
@@ -51,7 +51,8 @@ def prepare_directories_and_logger(output_directory, log_directory,):
     return logger
 
 def load_model(hparams):
-    model = ContourEncoder(hparams).cuda()
+    # model = ContourEncoder(hparams).cuda()
+    model = CnnEncoder(hparams).cuda()
     if hparams.data_parallel:
         model = torch.nn.DataParallel(model)
     return model
@@ -204,11 +205,11 @@ def train(output_directory, log_directory, checkpoint_path, warm_start, hparams)
     scheduler = StepLR(optimizer, step_size=hparams.learning_rate_decay_steps,
                        gamma=hparams.learning_rate_decay_rate)
     model.train()
-    criterion = SiameseLoss(margin=0.5)
+    criterion = SiameseLoss(margin=0.7)
     best_valid_loss = mathinf
     # ================ MAIN TRAINNIG LOOP! ===================
-    for epoch in range(epoch_offset, hparams.epochs):
-        print("Epoch: {}".format(epoch))
+    for epoch in tqdm(range(epoch_offset, hparams.epochs)):
+        # print("Epoch: {}".format(epoch))
         for _, batch in enumerate(train_loader):
             start = time.perf_counter()
             model.zero_grad()
@@ -217,7 +218,7 @@ def train(output_directory, log_directory, checkpoint_path, warm_start, hparams)
             anchor, pos, neg = model.siamese(batch)
             loss = criterion(anchor, pos, neg)
             reduced_loss = loss.item()
-            print('Iter {} - Loss: {:.5f}'.format(iteration, reduced_loss))
+            # print('Iter {} - Loss: {:.5f}'.format(iteration, reduced_loss))
             loss.backward()
             grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), hparams.grad_clip_thresh)
             optimizer.step()
@@ -274,7 +275,7 @@ if __name__ == '__main__':
     parser.add_argument('--batch_size', type=int, default=32)
     parser.add_argument('--valid_batch_size', type=int, default=64)
 
-    parser.add_argument('--epochs', type=int, default=100)    
+    parser.add_argument('--epochs', type=int, default=1000)    
     parser.add_argument('--iters_per_checkpoint', type=int, default=5000)        
     parser.add_argument('--learning_rate', type=float, default=1e-4)
     parser.add_argument('--weight_decay', type=float, default=1e-6)

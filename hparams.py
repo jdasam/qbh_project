@@ -3,7 +3,7 @@ class HParams:
         ################################
         # Experiment Parameters        #
         ################################
-        self.epochs=1000
+        self.epochs=5000
         self.iters_per_checkpoint=5000
         self.seed=1234
         self.dynamic_loss_scaling=True
@@ -20,6 +20,7 @@ class HParams:
         self.mel_dir_path = "/home/svcapp/userdata/musicai/melon/arena_mel"
         self.pitch_path = '/home/svcapp/userdata/flo_melody/melody_subgenre.dat'
         self.contour_path = '/home/svcapp/userdata/flo_melody/contour_subgenre_norm.json'
+        # self.contour_path = 'contour_tiny.json'
 
         ################################
         # Model Parameters             #
@@ -27,7 +28,7 @@ class HParams:
         # Encoder parameters
         self.input_size = 2
         self.hidden_size = 128
-        self.num_layers = 4 # LSTM num layer
+        self.num_layers = 2 # LSTM num layer
         self.embed_size = 128
 
         ################################
@@ -51,7 +52,7 @@ class HParams:
         self.model_code='contour'
         self.pos_loss_weight = 1e4
         self.num_neg_samples = 4
-        self.num_pos_samples = 4
+        self.num_pos_samples = 2
         self.pre_load_mel = False
         self.in_meta = False
 

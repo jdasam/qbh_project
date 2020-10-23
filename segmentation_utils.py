@@ -44,8 +44,6 @@ def expand_voice(voice_slice, max_length=2000):
             valid_distances = [ len_and_distance[i][1] for i in range(len(len_and_distance)-1) if merged_length(len_and_distance, i) <max_length]
     return voice_slice
 
-
-
 def merge_voice_slice(voice_slice, index):
     first = voice_slice.pop(index)
     second = voice_slice.pop(index)

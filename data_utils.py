@@ -72,8 +72,8 @@ class ContourSet:
             self.contours = path
         self.num_neg_samples = num_neg_samples
         self.num_aug_samples = num_aug_samples
-        # self.aug_types = ['different_tempo', 'different_key', 'different_std', 'addition', 'masking']
-        self.aug_types = ['different_tempo', 'different_key']
+        self.aug_types = ['different_tempo', 'different_key', 'different_std', 'addition', 'masking']
+        # self.aug_types = ['different_tempo', 'different_key']
         self.down_f = 10
         self.set_type = set_type
 
@@ -132,6 +132,7 @@ class ContourSet:
         
         if self.set_type == 'valid':
             return aug_samples, [selected_song_id] * len(aug_samples)
+            # return [downsampled_melody] * len(aug_samples), [selected_song_id] * len(aug_samples)
 
         # sampling negative melodies
         while len(neg_samples) < self.num_neg_samples:
@@ -150,9 +151,10 @@ class ContourCollate:
     # def __init__(self, mean, std):
     #     self.mean = mean
     #     self.std = std
-    def __init__(self, num_pos, num_neg):
+    def __init__(self, num_pos, num_neg, for_cnn=False):
         self.num_pos = num_pos
         self.num_neg = num_neg
+        self.for_cnn = for_cnn
 
     def to_tensor_list(self, alist):
         return [torch.Tensor(x) for x in alist]
@@ -166,6 +168,7 @@ class ContourCollate:
         return [melodies], [song_ids]
 
         """
+
         # entire_set or valid_set with only pos_samples
         if self.num_neg == 0: 
             if self.num_pos != 0:
@@ -174,28 +177,47 @@ class ContourCollate:
             else:
                 out = [torch.Tensor(x[0]) for x in batch]
                 song_ids = torch.LongTensor([x[1] for x in batch])
-            padded_sequence = torch.nn.utils.rnn.pad_sequence(out, batch_first=True)
-            # input_lengths = torch.LongTensor([torch.max(padded_sequence[i, :].data.nonzero())+1 for i in range(padded_sequence.size(0))])
-            input_lengths = torch.LongTensor([torch.max(torch.nonzero(padded_sequence[i, :].data))+1 for i in range(padded_sequence.size(0))])
 
-            input_lengths, sorted_idx = input_lengths.sort(0, descending=True)
-            padded_sequence = padded_sequence[sorted_idx]
-            song_ids = song_ids[sorted_idx]
-            packed_data =  torch.nn.utils.rnn.pack_padded_sequence(padded_sequence, input_lengths, batch_first=True, enforce_sorted=False)
-            return packed_data, song_ids
+            if self.for_cnn:
+                max_length = max([len(x) for x in out])
+                dummy = torch.zeros(len(out), max_length, 2)
+                for i in range(len(out)):
+                    seq = out[i]
+                    left_margin = (max_length - seq.shape[0]) // 2
+                    dummy[i,left_margin:left_margin+seq.shape[0],:] = seq
+                return dummy, song_ids
+            else:
+                padded_sequence = torch.nn.utils.rnn.pad_sequence(out, batch_first=True)
+                # input_lengths = torch.LongTensor([torch.max(padded_sequence[i, :].data.nonzero())+1 for i in range(padded_sequence.size(0))])
+                input_lengths = torch.LongTensor([torch.max(torch.nonzero(padded_sequence[i, :].data))+1 for i in range(padded_sequence.size(0))])
+
+                input_lengths, sorted_idx = input_lengths.sort(0, descending=True)
+                padded_sequence = padded_sequence[sorted_idx]
+                song_ids = song_ids[sorted_idx]
+                packed_data =  torch.nn.utils.rnn.pack_padded_sequence(padded_sequence, input_lengths, batch_first=True, enforce_sorted=False)
+                return packed_data, song_ids
 
         #  training set with multiple negative sampels
         elif isinstance(batch[0][1], list): # if neg_samples are list
             total = [ [torch.Tensor(x[0])] + self.to_tensor_list(x[1]) + self.to_tensor_list(x[2]) for x in batch ]
             total_flattened = [y for x in total for y in x]
-            padded_sequence = torch.nn.utils.rnn.pad_sequence(total_flattened, batch_first=True)
-            # padded_sequence = padded_sequence.reshape([len(total), -1, padded_sequence.shape[1], padded_sequence.shape[2]] )
-            # input_lengths = torch.LongTensor([torch.max(padded_sequence[i, :].data.nonzero())+1 for i in range(padded_sequence.size(0))])
-            input_lengths = torch.LongTensor([torch.max(torch.nonzero(padded_sequence[i, :].data))+1 for i in range(padded_sequence.size(0))])
-            input_lengths, sorted_idx = input_lengths.sort(0, descending=True)
-            padded_sequence = padded_sequence[sorted_idx]
-            packed_data =  torch.nn.utils.rnn.pack_padded_sequence(padded_sequence, input_lengths, batch_first=True, enforce_sorted=False)
-            return packed_data
+            if self.for_cnn:
+                max_length = max([len(x) for x in total_flattened])
+                dummy = torch.zeros(len(total_flattened), max_length, 2)
+                for i in range(len(total_flattened)):
+                    seq = total_flattened[i]
+                    left_margin = (max_length - seq.shape[0]) // 2
+                    dummy[i,left_margin:left_margin+seq.shape[0],:] = seq
+                return dummy 
+            else:
+                padded_sequence = torch.nn.utils.rnn.pad_sequence(total_flattened, batch_first=True)
+                # padded_sequence = padded_sequence.reshape([len(total), -1, padded_sequence.shape[1], padded_sequence.shape[2]] )
+                # input_lengths = torch.LongTensor([torch.max(padded_sequence[i, :].data.nonzero())+1 for i in range(padded_sequence.size(0))])
+                input_lengths = torch.LongTensor([torch.max(torch.nonzero(padded_sequence[i, :].data))+1 for i in range(padded_sequence.size(0))])
+                input_lengths, sorted_idx = input_lengths.sort(0, descending=True)
+                padded_sequence = padded_sequence[sorted_idx]
+                packed_data =  torch.nn.utils.rnn.pack_padded_sequence(padded_sequence, input_lengths, batch_first=True, enforce_sorted=False)
+                return packed_data
 
         else:
             dummy = np.zeros((len(batch), 3, self.mel_bins, self.mel_length) )

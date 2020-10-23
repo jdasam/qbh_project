@@ -3,19 +3,6 @@ from torch.utils.data import DataLoader
 from math import log
 
 
-def get_embeddings(model, cmp_loader):
-    # cmp_loader: loading entire trainset to calculate embedding of each piece
-    total_embs = torch.zeros([len(cmp_loader.dataset), model.out_size]).to('cuda')
-    current_idx = 0
-
-    for batch in cmp_loader:
-        embeddings = model.cnn(batch.to('cuda'))
-        num_samples = batch.shape[0]
-        total_embs[current_idx:current_idx+num_samples,:] = embeddings / embeddings.norm(dim=1)[:,None]
-        current_idx += num_samples
-
-    return total_embs
-
 def get_contour_embeddings(model, cmp_loader):
     # cmp_loader: loading entire trainset to calculate embedding of each piece
     total_embs = torch.zeros([len(cmp_loader.dataset), model.embed_size]).to('cuda')
