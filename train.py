@@ -122,7 +122,7 @@ def validate_classification_error(predicted, answer, threshold=0.6):
 def validate(model, val_loader, entire_loader, logger, epoch, iteration, criterion, hparams):
     """Handles all the validation scoring and printing"""
     model.eval()
-    valid_loss = 0
+    valid_score = 0
     with torch.no_grad():
 
         total_embs, total_song_ids = get_contour_embeddings(model, entire_loader)
@@ -136,11 +136,11 @@ def validate(model, val_loader, entire_loader, logger, epoch, iteration, criteri
             recommends = total_song_ids[recommends]
             ndcg = [cal_ndcg_single(recommends[i,:], song_ids[i]) for i in range(recommends.shape[0])]
             ndcg = sum(ndcg) / len(ndcg)
-            valid_loss += ndcg
+            valid_score += ndcg
 
-        valid_loss = valid_loss/(j+1)
+        valid_score = valid_score/(j+1)
     model.train()
-    print("Valdiation nDCG {}: {:5f} ".format(iteration, valid_loss))
+    print("Valdiation nDCG {}: {:5f} ".format(iteration, valid_score))
     # if 'siamese' in hparams.model_code:
     #     print("Validation loss {}: {:9f}  ".format(iteration, valid_ndcg))
     # else:
@@ -148,12 +148,12 @@ def validate(model, val_loader, entire_loader, logger, epoch, iteration, criteri
     #     valid_ndcg = -valid_ndcg
     # audio_sample = valset.convert_spec_to_wav(y_pred.squeeze(0).cpu().numpy())
     if hparams.in_meta:
-        results = {'validation score': valid_loss}
+        results = {'validation score': valid_score}
         response = scalars.send_valid_result(worker.id, epoch, iteration, results)
     else:
-        logger.log_validation(valid_loss, model, iteration)
+        logger.log_validation(valid_score, model, iteration)
 
-    return valid_loss
+    return valid_score
 
 def train(output_directory, log_directory, checkpoint_path, warm_start, hparams):
     """Training and validation logging results to tensorboard and stdout
@@ -206,7 +206,7 @@ def train(output_directory, log_directory, checkpoint_path, warm_start, hparams)
                        gamma=hparams.learning_rate_decay_rate)
     model.train()
     criterion = SiameseLoss(margin=0.7)
-    best_valid_loss = mathinf
+    best_valid_score = 0
     # ================ MAIN TRAINNIG LOOP! ===================
     for epoch in tqdm(range(epoch_offset, hparams.epochs)):
         # print("Epoch: {}".format(epoch))
@@ -235,9 +235,9 @@ def train(output_directory, log_directory, checkpoint_path, warm_start, hparams)
 
             if iteration % hparams.iters_per_checkpoint == 0: # and not iteration==0:
                 del loss, batch
-                valid_loss = validate(model, val_loader, entire_loader, logger, epoch, iteration, criterion, hparams)
-                is_best = valid_loss < best_valid_loss
-                best_valid_loss = min(valid_loss, best_valid_loss)
+                valid_score = validate(model, val_loader, entire_loader, logger, epoch, iteration, criterion, hparams)
+                is_best = valid_score > best_valid_score
+                best_valid_score = max(valid_score, best_valid_score)
                 if is_best:
                     checkpoint_path = output_directory / 'checkpoint_best'
                     # checkpoint_path = os.path.join(output_directory, "checkpoint_best")

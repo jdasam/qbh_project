@@ -21,7 +21,7 @@ def get_zero_slice_from_contour(contour, threshold=50):
     if voice_frame.shape[0] == 0:
         zeros_slice = []
     else:
-        zeros_slice = [ [0, voice_frame[0,0]] ] + [ [voice_frame[i-1,1], voice_frame[i,0]] for i in range(1, voice_frame.shape[0])]
+        zeros_slice = [ [is_zero_position[0], voice_frame[0,0]] ] + [ [voice_frame[i-1,1], voice_frame[i,0]] for i in range(1, voice_frame.shape[0])]
         zeros_slice = [x for x in zeros_slice if x[1]-x[0] > threshold]
     return zeros_slice
 

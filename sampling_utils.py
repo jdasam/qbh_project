@@ -37,3 +37,33 @@ def downsample_contour(contour, is_vocal=None, down_f=10, down_type='sample'):
         return np.stack([contour_d, is_vocal_d], axis=-1)
     else:
         return contour_d
+
+
+def downsample_with_float_list(contour, is_vocal, down_f=10, down_type='median'):
+    # input: list of pitch, list of is_vocal
+    # output: numpy array with L X 2. downsampled
+    ds_slice_idx = [int(x*down_f) for x in range(int(len(contour)//down_f)+1)]
+    end_slice_idx = ds_slice_idx[1:] + [len(contour)]
+    input_array = np.stack([contour, is_vocal]).T
+    input_array[input_array[:,1]==0,0] = np.nan
+    ds_contour = [np.nanmedian(np.asarray(contour[x:y]))for x,y in zip(ds_slice_idx, end_slice_idx)]
+    ds_is_vocal = [np.nanmedian(np.asarray(is_vocal[x:y]))for x,y in zip(ds_slice_idx, end_slice_idx)]
+    ds_contour[ds_is_vocal==0] = 0
+    ds_contour = np.stack([ds_contour, ds_is_vocal]).T
+
+    return ds_contour
+
+
+def downsample_with_float(contour_array, down_f=10, down_type='median'):
+    # input: array of 
+    # output: numpy array with L X 2. downsampled
+    contour_array = np.copy(contour_array)
+    ds_slice_idx = [int(x*down_f) for x in range(int(len(contour_array)//down_f)+1)]
+    end_slice_idx = ds_slice_idx[1:] + [len(contour_array)]
+    # contour_array[contour_array[:,1]==0,0] = np.nan
+    ds_contour = np.stack([np.nanmedian(contour_array[x:y,0]) if np.sum(contour_array[x:y,1])>0 else 0 for x,y in zip(ds_slice_idx, end_slice_idx)])
+    ds_is_vocal = np.stack([np.sum(contour_array[x:y,1])> (y-x)//3 for x,y in zip(ds_slice_idx, end_slice_idx)])
+    ds_contour[ds_is_vocal==0] = 0
+    ds_contour = np.stack([ds_contour, ds_is_vocal]).T
+
+    return ds_contour

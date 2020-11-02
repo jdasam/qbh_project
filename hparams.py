@@ -37,22 +37,22 @@ class HParams:
         self.use_saved_learning_rate=False
         self.optimizer_type='adam'
         self.learning_rate=1e-4
-        self.learning_rate_decay_steps = 10000
-        self.learning_rate_decay_rate = 0.98
+        self.learning_rate_decay_steps = 30000
+        self.learning_rate_decay_rate = 0.99
         self.weight_decay=1e-6
         self.momentum = 0.9
         self.center_loss_weight = 0.1
         self.num_recom = 50
 
         self.grad_clip_thresh=1.0
-        self.num_workers = 0
-        self.batch_size = 32
+        self.num_workers = 4
+        self.batch_size = 64
         self.valid_batch_size = 128
         self.drop_out = 0.2
         self.model_code='contour'
         self.pos_loss_weight = 1e4
-        self.num_neg_samples = 4
-        self.num_pos_samples = 2
+        self.num_neg_samples = 8
+        self.num_pos_samples = 1
         self.pre_load_mel = False
         self.in_meta = False
 

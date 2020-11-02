@@ -8,14 +8,15 @@ def get_contour_embeddings(model, cmp_loader):
     total_embs = torch.zeros([len(cmp_loader.dataset), model.embed_size]).to('cuda')
     total_song_ids = torch.zeros(len(cmp_loader.dataset),dtype=torch.long)
     current_idx = 0
-
-    for batch in cmp_loader:
-        contour, song_ids = batch
-        embeddings = model(contour.cuda())
-        num_samples = song_ids.shape[0]
-        total_embs[current_idx:current_idx+num_samples,:] = embeddings / embeddings.norm(dim=1)[:,None]
-        total_song_ids[current_idx:current_idx+num_samples] = song_ids
-        current_idx += num_samples
+    model.eval()
+    with torch.no_grad():
+        for batch in cmp_loader:
+            contour, song_ids = batch
+            embeddings = model(contour.cuda())
+            num_samples = song_ids.shape[0]
+            total_embs[current_idx:current_idx+num_samples,:] = embeddings / embeddings.norm(dim=1)[:,None]
+            total_song_ids[current_idx:current_idx+num_samples] = song_ids
+            current_idx += num_samples
 
     return total_embs, total_song_ids
 
@@ -28,5 +29,9 @@ def cal_ndcg(rec, answer):
 
 def cal_ndcg_single(rec, answer):
     rel_recs = [ 1/log(i+2,2) for i, value in enumerate(rec) if value == answer]
-    dcg = sum(rel_recs)
-    return dcg
+    if rel_recs == []:
+        return 0
+    else:
+        return rel_recs[0]
+    # dcg = sum(rel_recs)
+    # return dcg

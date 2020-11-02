@@ -14,7 +14,7 @@ class Logger(SummaryWriter):
 
 
     def log_validation(self, reduced_loss, model, iteration):
-        self.add_scalar("validation.loss", reduced_loss, iteration)
+        self.add_scalar("validation.score", reduced_loss, iteration)
         for tag, value in model.named_parameters():
             tag = tag.replace('.', '/')
             self.add_histogram(tag, value.data.cpu().numpy(), iteration)

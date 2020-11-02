@@ -15,6 +15,7 @@ from sampling_utils import downsample_contour
 from segmentation_utils import find_melody_seg_fast
 
 
+
 class MelodyLoader:
     def __init__(self, in_midi_pitch=False):
         self.seg_thresh = 50
@@ -118,17 +119,19 @@ class ContourSet:
         neg_samples = []
         
         # augmenting melodies
-        if len(self.aug_types) <= self.num_aug_samples:
-            sampled_aug_types = self.aug_types
-        else:
-            sampled_aug_types = random.sample(self.aug_types, self.num_aug_samples)
-        for aug_type in sampled_aug_types:
-            if aug_type == 'different_tempo':
-                aug_melody = getattr(mel_aug, 'with_different_tempo')(selected_melody, selected_is_vocal)
-            else:
-                func = getattr(mel_aug, 'with_'+aug_type)
-                aug_melody = func(downsampled_melody)
-            aug_samples.append(aug_melody)
+        melody_array = mel_aug.melody_dict_to_array(self.contours[index])
+        aug_samples = [mel_aug.make_augmented_melody(melody_array) for i in range(self.num_aug_samples)]
+        # if len(self.aug_types) <= self.num_aug_samples:
+        #     sampled_aug_types = self.aug_types
+        # else:
+        #     sampled_aug_types = random.sample(self.aug_types, self.num_aug_samples)
+        # for aug_type in sampled_aug_types:
+        #     if aug_type == 'different_tempo':
+        #         aug_melody = getattr(mel_aug, 'with_different_tempo')(selected_melody, selected_is_vocal)
+        #     else:
+        #         func = getattr(mel_aug, 'with_'+aug_type)
+        #         aug_melody = func(downsampled_melody)
+        #     aug_samples.append(aug_melody)
         
         if self.set_type == 'valid':
             return aug_samples, [selected_song_id] * len(aug_samples)
