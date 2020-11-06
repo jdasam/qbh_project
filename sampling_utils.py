@@ -54,15 +54,21 @@ def downsample_with_float_list(contour, is_vocal, down_f=10, down_type='median')
     return ds_contour
 
 
-def downsample_with_float(contour_array, down_f=10, down_type='median'):
+def downsample_with_float(contour_array, down_f=10, down_type='sample'):
     # input: array of 
     # output: numpy array with L X 2. downsampled
     contour_array = np.copy(contour_array)
-    ds_slice_idx = [int(x*down_f) for x in range(int(len(contour_array)//down_f)+1)]
-    end_slice_idx = ds_slice_idx[1:] + [len(contour_array)]
-    # contour_array[contour_array[:,1]==0,0] = np.nan
-    ds_contour = np.stack([np.nanmedian(contour_array[x:y,0]) if np.sum(contour_array[x:y,1])>0 else 0 for x,y in zip(ds_slice_idx, end_slice_idx)])
-    ds_is_vocal = np.stack([np.sum(contour_array[x:y,1])> (y-x)//3 for x,y in zip(ds_slice_idx, end_slice_idx)])
+    if down_type=='sample':
+        ds_slice_idx = [int(x*down_f) for x in range(int(len(contour_array)//down_f))]
+        contour_array[contour_array[:,1]==0,0] = np.nan
+        ds_contour = np.stack([contour_array[x,0] for x in ds_slice_idx])
+        ds_is_vocal = np.stack([contour_array[x,1] for x in ds_slice_idx])
+    else:
+        ds_slice_idx = [int(x*down_f) for x in range(int(len(contour_array)//down_f)+1)]
+        end_slice_idx = ds_slice_idx[1:] + [len(contour_array)]
+#     ds_contour = np.stack([np.nanmedian(contour_array[x:y,0]) for x,y in zip(ds_slice_idx, end_slice_idx)])
+        ds_contour = np.stack([np.nanmedian(contour_array[x:y,0]) if np.sum(contour_array[x:y,1])>0 else 0 for x,y in zip(ds_slice_idx, end_slice_idx)])
+        ds_is_vocal = np.stack([np.sum(contour_array[x:y,1])> (y-x)//3 for x,y in zip(ds_slice_idx, end_slice_idx)])
     ds_contour[ds_is_vocal==0] = 0
     ds_contour = np.stack([ds_contour, ds_is_vocal]).T
 
