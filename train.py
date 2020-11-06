@@ -137,7 +137,6 @@ def validate(model, val_loader, entire_loader, logger, epoch, iteration, criteri
             ndcg = [cal_ndcg_single(recommends[i,:], song_ids[i]) for i in range(recommends.shape[0])]
             ndcg = sum(ndcg) / len(ndcg)
             valid_score += ndcg
-
         valid_score = valid_score/(j+1)
     model.train()
     print("Valdiation nDCG {}: {:5f} ".format(iteration, valid_score))
@@ -205,7 +204,7 @@ def train(output_directory, log_directory, checkpoint_path, warm_start, hparams)
     scheduler = StepLR(optimizer, step_size=hparams.learning_rate_decay_steps,
                        gamma=hparams.learning_rate_decay_rate)
     model.train()
-    criterion = SiameseLoss(margin=0.7)
+    criterion = SiameseLoss(margin=hparams.loss_margin)
     best_valid_score = 0
     # ================ MAIN TRAINNIG LOOP! ===================
     for epoch in tqdm(range(epoch_offset, hparams.epochs)):
@@ -214,27 +213,22 @@ def train(output_directory, log_directory, checkpoint_path, warm_start, hparams)
             start = time.perf_counter()
             model.zero_grad()
             batch = batch.cuda()
-
             anchor, pos, neg = model.siamese(batch)
             loss = criterion(anchor, pos, neg)
             reduced_loss = loss.item()
-            # print('Iter {} - Loss: {:.5f}'.format(iteration, reduced_loss))
             loss.backward()
             grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), hparams.grad_clip_thresh)
             optimizer.step()
-
             duration = time.perf_counter() - start
-            # print("Train loss {} {:.6f} Grad Norm {:.6f} {:.2f}s/it".format(
-            #     iteration, reduced_loss, grad_norm, duration))
             if hparams.in_meta:
                 results = {'training loss': -reduced_loss}
                 # response = scalars.send_train_result(worker.id, epoch, iteration, results)
             else:
                 logger.log_training(
                     reduced_loss, grad_norm, learning_rate, duration, iteration)
-
             if iteration % hparams.iters_per_checkpoint == 0: # and not iteration==0:
-                del loss, batch
+                # del loss, batch
+                # torch.cuda.empty_cache()
                 valid_score = validate(model, val_loader, entire_loader, logger, epoch, iteration, criterion, hparams)
                 is_best = valid_score > best_valid_score
                 best_valid_score = max(valid_score, best_valid_score)
@@ -249,8 +243,11 @@ def train(output_directory, log_directory, checkpoint_path, warm_start, hparams)
                     checkpoint_path = output_directory / 'checkpoint_last'
                     save_checkpoint(model, optimizer, learning_rate, iteration,
                                     checkpoint_path)
+                # torch.cuda.empty_cache()
+
 
             iteration += 1
+        # train_loader.dataset.min_aug = 1 + iteration // 75000
 
 
 if __name__ == '__main__':
@@ -263,33 +260,27 @@ if __name__ == '__main__':
                         help='directory to save tensorboard logs')
     parser.add_argument('-c', '--checkpoint_path', type=str, default=None,
                         required=False, help='checkpoint path')
-    parser.add_argument('--hparams', type=str,
-                        required=False, help='comma separated name=value pairs')
     parser.add_argument('--device', type=int, default=0,
                     required=False, help='gpu device index')
     parser.add_argument('--in_metalearner', type=lambda x: (str(x).lower() == 'true'), default=False, help='whether work in meta learner')
     parser.add_argument('--warm_start', action='store_true',
                         help='load model weights only, ignore specified layers')
-    parser.add_argument('--conv_size', type=int, default=128)        
-    parser.add_argument('--out_size', type=int, default=256)        
-    parser.add_argument('--batch_size', type=int, default=32)
-    parser.add_argument('--valid_batch_size', type=int, default=64)
+    parser.add_argument('--hidden_size', type=int, required=False)        
+    parser.add_argument('--out_size', type=int, required=False)        
+    parser.add_argument('--batch_size', type=int, required=False)
+    parser.add_argument('--valid_batch_size', type=int, required=False)
 
-    parser.add_argument('--epochs', type=int, default=1000)    
-    parser.add_argument('--iters_per_checkpoint', type=int, default=5000)        
-    parser.add_argument('--learning_rate', type=float, default=1e-4)
-    parser.add_argument('--weight_decay', type=float, default=1e-6)
-    parser.add_argument('--momentum', type=float, default=0.9)
-    parser.add_argument('--drop_out', type=float, default=0.2)
-    parser.add_argument('--num_workers', type=int, default=4)        
-    parser.add_argument('--model_code', type=str, default="contour_ae")
-    parser.add_argument('--optimizer_type', type=str, default="adam")
-    parser.add_argument('--num_neg_samples', type=int, default=4)
-    parser.add_argument('--kernel_size', type=int, default=5)
-    parser.add_argument('--average_pool', type=lambda x: (str(x).lower() == 'true'), default=False, help='whether use average pool instaed of max pool')
-    parser.add_argument('--encoder_size', type=int, default=32)        
-    parser.add_argument('--middle_size', type=int, default=16)        
-    parser.add_argument('--latent_vec_size', type=int, default=10)
+    parser.add_argument('--epochs', type=int, required=False)    
+    parser.add_argument('--iters_per_checkpoint', type=int, required=False)        
+    parser.add_argument('--learning_rate', type=float)
+    parser.add_argument('--weight_decay', type=float)
+    parser.add_argument('--momentum', type=float)
+    parser.add_argument('--drop_out', type=float)
+    parser.add_argument('--num_workers', type=int)        
+    parser.add_argument('--model_code', type=str)
+    parser.add_argument('--optimizer_type', type=str)
+    parser.add_argument('--num_neg_samples', type=int)
+
 
     args = parser.parse_args()
     if args.checkpoint_path:
@@ -301,9 +292,9 @@ if __name__ == '__main__':
     
     if args.in_metalearner:
         hparams.in_meta = True
-        for attr_key in vars(args):
-            if attr_key in vars(hparams):
-                setattr(hparams, attr_key, getattr(args, attr_key))
+    for attr_key in vars(args):
+        if getattr(args, attr_key) is not None and attr_key in vars(hparams):
+            setattr(hparams, attr_key, getattr(args, attr_key))
         # hparams.out_size = args.out_size
         # hparams.conv_size = args.conv_size
         # hparams.learning_rate = args.learning_rate
