@@ -48,7 +48,7 @@ class MelodyLoader:
         
 
 class ContourSet:
-    def __init__(self, path, song_ids=[], num_aug_samples=4, num_neg_samples=4, quantized=True, pre_load=False, set_type='entire'):
+    def __init__(self, path, song_ids=[], num_aug_samples=4, num_neg_samples=4, quantized=True, pre_load=False, set_type='entire', min_aug=1):
         if not pre_load:
             self.path = Path(path)
             self.melody_txt_list = [song_id_to_pitch_txt_path(self.path, x) for x in song_ids]
@@ -73,10 +73,11 @@ class ContourSet:
             self.contours = path
         self.num_neg_samples = num_neg_samples
         self.num_aug_samples = num_aug_samples
-        self.aug_types = ['different_tempo', 'different_key', 'different_std', 'addition', 'masking']
+        self.aug_keys = ['tempo', 'key', 'std', 'masking', 'pitch_noise', 'fill']
         # self.aug_types = ['different_tempo', 'different_key']
         self.down_f = 10
         self.set_type = set_type
+        self.min_aug = min_aug
 
         if set_type =='train':
             self.contours = self.contours[:int(len(self)*0.8)]
@@ -120,7 +121,10 @@ class ContourSet:
         
         # augmenting melodies
         melody_array = mel_aug.melody_dict_to_array(self.contours[index])
-        aug_samples = [mel_aug.make_augmented_melody(melody_array) for i in range(self.num_aug_samples)]
+        if self.min_aug < len(self.aug_keys):
+            aug_samples = [mel_aug.make_augmented_melody(melody_array, random.sample(self.aug_keys, random.randint(self.min_aug,len(self.aug_keys)))) for i in range(self.num_aug_samples)]
+        else:
+            aug_samples = [mel_aug.make_augmented_melody(melody_array,self.aug_keys) for i in range(self.num_aug_samples)]
         # if len(self.aug_types) <= self.num_aug_samples:
         #     sampled_aug_types = self.aug_types
         # else:

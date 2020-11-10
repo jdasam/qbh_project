@@ -1,7 +1,7 @@
 import random
 import numpy as np
 import copy
-from sampling_utils import downsample_contour, downsample_with_float
+from sampling_utils import downsample_contour, downsample_with_float, downsample_contour_array
 # Input x is an np.array of pitch of each frame
 
 aug_types = ['different_tempo', 'different_key', 'different_std', 'addition', 'masking']
@@ -141,10 +141,19 @@ def make_augmented_melody(melody_array, aug_keys):
         slice_ids = slice_in_random_position(aug_melody.shape[0], 7)
         aug_melody = downsample_with_different_tempo(aug_melody, global_tempo, slice_ids)
         while np.sum(aug_melody[:,1]) == 0:
+            if 'masking' in aug_keys:
+                masking_ratio = random.random() / 2
+                aug_melody = with_masking(melody_array, ratio=masking_ratio)
+                while np.sum(aug_melody[:,1]) == 0:
+                    aug_melody = with_masking(melody_array, ratio=masking_ratio)
+            else:
+                aug_melody = np.copy(melody_array)
             global_tempo = random.random() + 0.5
             slice_ids = slice_in_random_position(aug_melody.shape[0], 7)
             aug_melody = downsample_with_different_tempo(aug_melody, global_tempo, slice_ids)
-    
+    else:
+        aug_melody = downsample_contour_array(aug_melody)
+
     if 'key' in aug_keys:
         aug_melody = with_different_key(aug_melody)
     

@@ -10,7 +10,7 @@ class HParams:
         self.cudnn_enabled=True
         self.cudnn_benchmark=False
         self.data_parallel=False
-        # ignore_layers=['embedding.weight'],
+        # ignore_layers=['embedding.weight']
 
         ################################
         # Data Parameters             #
@@ -29,7 +29,12 @@ class HParams:
         self.input_size = 2
         self.hidden_size = 128
         self.num_layers = 2 # LSTM num layer
+        self.kernel_size = 3
         self.embed_size = 128
+        self.num_head = 8
+        self.use_attention = False
+        self.use_rnn = False
+        self.use_pre_encoder = False
 
         ################################
         # Optimization Hyperparameters #
@@ -43,16 +48,18 @@ class HParams:
         self.momentum = 0.9
         self.center_loss_weight = 0.1
         self.num_recom = 50
+        self.is_scheduled = False
 
         self.grad_clip_thresh=1.0
         self.num_workers = 4
-        self.batch_size = 64
-        self.valid_batch_size = 128
+        self.batch_size = 24
+        self.valid_batch_size = 64
         self.drop_out = 0.2
-        self.model_code='contour'
+        self.loss_margin = 0.5
+        self.model_code='contour_scheduled'
         self.pos_loss_weight = 1e4
-        self.num_neg_samples = 8
-        self.num_pos_samples = 1
+        self.num_neg_samples = 4
+        self.num_pos_samples = 2
         self.pre_load_mel = False
         self.in_meta = False
 
