@@ -7,13 +7,12 @@ from math import inf as mathinf
 from simplejson import dump as json_dump, load as json_load
 import numpy as np
 from tqdm import tqdm
-from numpy import finfo
 from pathlib import Path
 from datetime import datetime
 
 import torch
 from torch.utils.data import DataLoader
-from adamp import AdamP
+# from adamp import AdamP
 
 from model import ContourEncoder, CnnEncoder
 from data_utils import ContourSet, ContourCollate, pad_collate
@@ -31,9 +30,13 @@ def prepare_dataloaders(hparams, valid_only=False):
     # Get data, data loaders and collate function ready
     with open(hparams.contour_path, 'rb') as f:
         pre_loaded_data = json_load(f)
-    trainset = ContourSet(pre_loaded_data, set_type='train', pre_load=True, num_aug_samples=hparams.num_pos_samples, num_neg_samples=hparams.num_neg_samples)
+    if hparams.is_scheduled:
+        min_aug=1
+    else:
+        min_aug=10
+    trainset = ContourSet(pre_loaded_data, set_type='train', pre_load=True, num_aug_samples=hparams.num_pos_samples, num_neg_samples=hparams.num_neg_samples, min_aug=min_aug)
     entireset = ContourSet(pre_loaded_data, set_type='entire', pre_load=True, num_aug_samples=0, num_neg_samples=0)
-    validset =  ContourSet(pre_loaded_data, set_type='valid', pre_load=True, num_aug_samples=4, num_neg_samples=0)
+    validset =  ContourSet(pre_loaded_data, set_type='valid', pre_load=True, num_aug_samples=4, num_neg_samples=0, min_aug=10)
 
     train_loader = DataLoader(trainset, hparams.batch_size, shuffle=True,num_workers=hparams.num_workers,
         collate_fn=ContourCollate(hparams.num_pos_samples, hparams.num_neg_samples, for_cnn=True), pin_memory=True)
@@ -172,12 +175,12 @@ def train(output_directory, log_directory, checkpoint_path, warm_start, hparams)
 
     model = load_model(hparams)
     learning_rate = hparams.learning_rate
-    if hparams.optimizer_type.lower() == 'adamp':
-        optimizer = AdamP(model.parameters(), lr=learning_rate,
-                                    weight_decay=hparams.weight_decay)
-    else:
-        optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate,
-                                    weight_decay=hparams.weight_decay)
+    # if hparams.optimizer_type.lower() == 'adamp':
+    #     optimizer = AdamP(model.parameters(), lr=learning_rate,
+    #                                 weight_decay=hparams.weight_decay)
+    # else:
+    optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate,
+                                weight_decay=hparams.weight_decay)
 
     logger = prepare_directories_and_logger(output_directory, log_directory)
     save_hparams(hparams, output_directory)
@@ -262,12 +265,15 @@ if __name__ == '__main__':
                         required=False, help='checkpoint path')
     parser.add_argument('--device', type=int, default=0,
                     required=False, help='gpu device index')
+    parser.add_argument('--contour_path', type=str,
+                    help='path to contour.json')
     parser.add_argument('--in_metalearner', type=lambda x: (str(x).lower() == 'true'), default=False, help='whether work in meta learner')
     parser.add_argument('--warm_start', action='store_true',
                         help='load model weights only, ignore specified layers')
     parser.add_argument('--hidden_size', type=int, required=False)        
-    parser.add_argument('--out_size', type=int, required=False)        
-    parser.add_argument('--batch_size', type=int, required=False)
+    parser.add_argument('--embed_size', type=int, required=False)
+    parser.add_argument('--kernel_size', type=int, required=False)
+    parser.add_argument('--num_head', type=int, required=False)
     parser.add_argument('--valid_batch_size', type=int, required=False)
 
     parser.add_argument('--epochs', type=int, required=False)    
@@ -280,6 +286,10 @@ if __name__ == '__main__':
     parser.add_argument('--model_code', type=str)
     parser.add_argument('--optimizer_type', type=str)
     parser.add_argument('--num_neg_samples', type=int)
+    parser.add_argument('--use_attention', type=lambda x: (str(x).lower() == 'true'))
+    parser.add_argument('--use_pre_encoder', type=lambda x: (str(x).lower() == 'true'))
+    parser.add_argument('--use_rnn', type=lambda x: (str(x).lower() == 'true'))
+    parser.add_argument('--is_scheduled', type=lambda x: (str(x).lower() == 'true'))
 
 
     args = parser.parse_args()
