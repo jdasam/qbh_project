@@ -80,7 +80,10 @@ class CnnEncoder(nn.Module):
         
         if hparams.use_attention:
             self.use_attention = True
-            self.final_attention = ContextAttention(hparams.hidden_size, num_head=hparams.num_head)
+            if hparams.use_context_attention:
+                self.final_attention = ContextAttention(hparams.hidden_size, num_head=hparams.num_head)
+            else:
+                self.final_attention = SimpleAttention(hparams.hidden_size)
         else:
             self.use_attention = False
 
@@ -114,6 +117,20 @@ class CnnEncoder(nn.Module):
         # seq_unpacked = self.fc(seq_unpacked)
         # seq_unpacked = seq_unpacked.view([-1, 1+self.num_pos_samples+self.num_neg_samples, seq_unpacked.shape[1],seq_unpacked.shape[2]])
         # return seq_unpacked[:,0:1,:], seq_unpacked[:,1:1+self.num_pos_samples,:], seq_unpacked[:,1+self.num_pos_samples:,:]
+
+
+class SimpleAttention(nn.Module):
+    def __init__(self, size):
+        super(SimpleAttention, self).__init__()
+        self.attention_net = nn.Linear(size, size)
+
+    def forward(self, x):
+        attention = self.attention_net(x)
+        softmax_weight = torch.softmax(attention, dim=1)
+        attention_sum = softmax_weight * x
+        return torch.sum(attention_sum, dim=1)
+
+
 
 class ContextAttention(nn.Module):
     def __init__(self, size, num_head):

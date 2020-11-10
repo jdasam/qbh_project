@@ -19,8 +19,8 @@ class HParams:
         self.idx_dict_fname = "/home/svcapp/userdata/musicai/melon/index_dict.dat"
         self.mel_dir_path = "/home/svcapp/userdata/musicai/melon/arena_mel"
         self.pitch_path = '/home/svcapp/userdata/flo_melody/melody_subgenre.dat'
-        self.contour_path = '/home/svcapp/userdata/flo_melody/contour_subgenre_norm.json'
-        # self.contour_path = 'contour_tiny.json'
+        # self.contour_path = '/home/svcapp/userdata/flo_melody/contour_subgenre_norm.json'
+        self.contour_path = 'contour_tiny.json'
 
         ################################
         # Model Parameters             #
@@ -33,6 +33,7 @@ class HParams:
         self.embed_size = 128
         self.num_head = 8
         self.use_attention = False
+        self.use_context_attention = False
         self.use_rnn = False
         self.use_pre_encoder = False
 
