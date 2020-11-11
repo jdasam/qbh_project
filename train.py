@@ -308,6 +308,7 @@ if __name__ == '__main__':
     parser.add_argument('--use_pre_encoder', type=lambda x: (str(x).lower() == 'true'))
     parser.add_argument('--use_rnn', type=lambda x: (str(x).lower() == 'true'))
     parser.add_argument('--is_scheduled', type=lambda x: (str(x).lower() == 'true'))
+    parser.add_argument('--get_valid_by_aug', type=lambda x: (str(x).lower() == 'true'))
 
 
     args = parser.parse_args()
