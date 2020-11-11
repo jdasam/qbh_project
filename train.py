@@ -122,27 +122,44 @@ def validate_classification_error(predicted, answer, threshold=0.6):
     
     return 2* precision * recall / (precision + recall) 
 
+def cal_ndcg_of_loader(model, val_loader, total_embs, total_song_ids):
+    valid_score = 0
+    for j, batch in enumerate(val_loader):
+        contours, song_ids = batch
+        anchor = model(contours.cuda())
+        anchor_norm = anchor / anchor.norm(dim=1)[:, None]
+        similarity = torch.mm(anchor_norm, total_embs.transpose(0,1))
+        recommends = torch.topk(similarity, k=hparams.num_recom, dim=-1)[1]
+        recommends = total_song_ids[recommends]
+        ndcg = [cal_ndcg_single(recommends[i,:], song_ids[i]) for i in range(recommends.shape[0])]
+        ndcg = sum(ndcg) / len(ndcg)
+        valid_score += ndcg
+    valid_score = valid_score/(j+1)
+    return valid_score
+
 def validate(model, val_loader, entire_loader, logger, epoch, iteration, criterion, hparams):
     """Handles all the validation scoring and printing"""
     model.eval()
-    valid_score = 0
+    valid_score = {}
     with torch.no_grad():
-
         total_embs, total_song_ids = get_contour_embeddings(model, entire_loader)
+        valid_score["validation_score"] = cal_ndcg_of_loader(model, val_loader, total_embs, total_song_ids)
         # for j, batch in enumerate(tqdm(val_loader)):
-        for j, batch in enumerate(val_loader):
-            contours, song_ids = batch
-            anchor = model(contours.cuda())
-            anchor_norm = anchor / anchor.norm(dim=1)[:, None]
-            similarity = torch.mm(anchor_norm, total_embs.transpose(0,1))
-            recommends = torch.topk(similarity, k=hparams.num_recom, dim=-1)[1]
-            recommends = total_song_ids[recommends]
-            ndcg = [cal_ndcg_single(recommends[i,:], song_ids[i]) for i in range(recommends.shape[0])]
-            ndcg = sum(ndcg) / len(ndcg)
-            valid_score += ndcg
-        valid_score = valid_score/(j+1)
+        if hparams.get_valid_by_aug:
+            aug_keys = [x for x in val_loader.dataset.aug_keys]
+            for key in aug_keys:
+                val_loader.dataset.aug_keys = [key]
+                valid_score_of_key = cal_ndcg_of_loader(model, val_loader, total_embs, total_song_ids)
+                valid_score[key] = valid_score_of_key
+            val_loader.dataset.aug_keys = aug_keys
     model.train()
-    print("Valdiation nDCG {}: {:5f} ".format(iteration, valid_score))
+    if len(valid_score) == 1:
+        print("Valdiation nDCG {}: {:5f} ".format(iteration, valid_score["validation_score"]))
+    else:
+        score_string = "Valdiation nDCG {}: {:5f} ".format(iteration, valid_score["validation_score"])
+        for key in valid_score.keys():
+            score_string += "/ {}: {:5f}".format(key, valid_score[key])
+        print(score_string)
     # if 'siamese' in hparams.model_code:
     #     print("Validation loss {}: {:9f}  ".format(iteration, valid_ndcg))
     # else:
@@ -150,12 +167,12 @@ def validate(model, val_loader, entire_loader, logger, epoch, iteration, criteri
     #     valid_ndcg = -valid_ndcg
     # audio_sample = valset.convert_spec_to_wav(y_pred.squeeze(0).cpu().numpy())
     if hparams.in_meta:
-        results = {'validation score': valid_score}
-        response = scalars.send_valid_result(worker.id, epoch, iteration, results)
+        # results = {'validation_score': valid_score}
+        response = scalars.send_valid_result(worker.id, epoch, iteration, valid_score)
     else:
         logger.log_validation(valid_score, model, iteration)
 
-    return valid_score
+    return valid_score["validation_score"]
 
 def train(output_directory, log_directory, checkpoint_path, warm_start, hparams):
     """Training and validation logging results to tensorboard and stdout
@@ -210,7 +227,7 @@ def train(output_directory, log_directory, checkpoint_path, warm_start, hparams)
     criterion = SiameseLoss(margin=hparams.loss_margin)
     best_valid_score = 0
     # ================ MAIN TRAINNIG LOOP! ===================
-    for epoch in tqdm(range(epoch_offset, hparams.epochs)):
+    for epoch in range(epoch_offset, hparams.epochs):
         # print("Epoch: {}".format(epoch))
         for _, batch in enumerate(train_loader):
             start = time.perf_counter()
@@ -274,6 +291,7 @@ if __name__ == '__main__':
     parser.add_argument('--embed_size', type=int, required=False)
     parser.add_argument('--kernel_size', type=int, required=False)
     parser.add_argument('--num_head', type=int, required=False)
+    parser.add_argument('--batch_size', type=int, required=False)
     parser.add_argument('--valid_batch_size', type=int, required=False)
 
     parser.add_argument('--epochs', type=int, required=False)    

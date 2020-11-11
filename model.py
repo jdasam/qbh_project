@@ -64,13 +64,13 @@ class CnnEncoder(nn.Module):
             self.cnn_input_size = 2
 
         self.encoder = nn.Sequential(
-            ConvNorm(self.cnn_input_size, self.hidden_size, self.kernel_size, 0),
+            ConvNorm(self.cnn_input_size, self.hidden_size, self.kernel_size, (self.kernel_size-1)//2),
             nn.MaxPool1d(3),
-            ConvNorm(self.hidden_size, self.hidden_size, self.kernel_size, 0),
+            ConvNorm(self.hidden_size, self.hidden_size, self.kernel_size, (self.kernel_size-1)//2),
             nn.MaxPool1d(3),
-            ConvNorm(self.hidden_size, self.hidden_size, self.kernel_size, 0),
+            ConvNorm(self.hidden_size, self.hidden_size, self.kernel_size, (self.kernel_size-1)//2),
             nn.MaxPool1d(3),
-            ConvNorm(self.hidden_size, self.hidden_size, self.kernel_size, 0),
+            ConvNorm(self.hidden_size, self.hidden_size, self.kernel_size, (self.kernel_size-1)//2),
             
         )
         self.fc = nn.Linear(hparams.hidden_size, hparams.embed_size)

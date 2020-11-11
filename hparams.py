@@ -50,6 +50,7 @@ class HParams:
         self.center_loss_weight = 0.1
         self.num_recom = 50
         self.is_scheduled = False
+        self.get_valid_by_aug = False
 
         self.grad_clip_thresh=1.0
         self.num_workers = 4
