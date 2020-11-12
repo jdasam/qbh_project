@@ -28,7 +28,7 @@ class HParams:
         # Encoder parameters
         self.input_size = 2
         self.hidden_size = 128
-        self.num_layers = 2 # LSTM num layer
+        self.num_layers = 4 # conv layers
         self.kernel_size = 3
         self.embed_size = 128
         self.num_head = 8
@@ -36,6 +36,8 @@ class HParams:
         self.use_context_attention = False
         self.use_rnn = False
         self.use_pre_encoder = False
+        self.use_res = False
+        self.use_gradual_size = False
 
         ################################
         # Optimization Hyperparameters #

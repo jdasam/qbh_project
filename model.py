@@ -3,6 +3,8 @@ import torch.nn as nn
 import random
 
 from torch.nn.modules.pooling import MaxPool1d
+from module import ConvNorm, Res_1d
+from utils import cal_conv_parameters
 
 class ContourEncoder(nn.Module):
     def __init__(self, hparams):
@@ -34,17 +36,6 @@ class ContourEncoder(nn.Module):
         # return seq_unpacked[:,0:1,:], seq_unpacked[:,1:1+self.num_pos_samples,:], seq_unpacked[:,1+self.num_pos_samples:,:]
 
 
-class ConvNorm(nn.Module):
-    def __init__(self, in_channels, out_channels, kernel_size, padding):
-        super(ConvNorm, self).__init__()
-        self.conv_norm = nn.Sequential(
-            nn.Conv1d(in_channels, out_channels, kernel_size=kernel_size, padding=padding),
-            nn.BatchNorm1d(out_channels),
-            nn.ReLU(inplace=True),
-        )
-
-    def forward(self, x):
-        return self.conv_norm(x)
 
 class CnnEncoder(nn.Module):
     def __init__(self, hparams):
@@ -62,18 +53,28 @@ class CnnEncoder(nn.Module):
         else:
             self.use_pre_encoder = False
             self.cnn_input_size = 2
+    
+        if hparams.use_res:
+            module = Res_1d 
+        else:
+            module = ConvNorm
+        self.encoder = nn.Sequential()
+        parameters = cal_conv_parameters(hparams, self.cnn_input_size)
 
-        self.encoder = nn.Sequential(
-            ConvNorm(self.cnn_input_size, self.hidden_size, self.kernel_size, (self.kernel_size-1)//2),
-            nn.MaxPool1d(3),
-            ConvNorm(self.hidden_size, self.hidden_size, self.kernel_size, (self.kernel_size-1)//2),
-            nn.MaxPool1d(3),
-            ConvNorm(self.hidden_size, self.hidden_size, self.kernel_size, (self.kernel_size-1)//2),
-            nn.MaxPool1d(3),
-            ConvNorm(self.hidden_size, self.hidden_size, self.kernel_size, (self.kernel_size-1)//2),
-            
-        )
-        self.fc = nn.Linear(hparams.hidden_size, hparams.embed_size)
+        for i, param in enumerate(parameters):
+            self.encoder.add_module(f'conv_{i}', module(param['input_channel'], param['output_channel'], self.kernel_size, self.kernel_size//2))
+            if param['max_pool'] > 1:
+                self.encoder.add_module(f'pool_{i}', nn.MaxPool1d(param['max_pool']))
+        # self.encoder = nn.Sequential(
+        #     ConvNorm(self.cnn_input_size, self.hidden_size, self.kernel_size, (self.kernel_size-1)//2),
+        #     nn.MaxPool1d(3),
+        #     ConvNorm(self.hidden_size, self.hidden_size, self.kernel_size, (self.kernel_size-1)//2),
+        #     nn.MaxPool1d(3),
+        #     ConvNorm(self.hidden_size, self.hidden_size, self.kernel_size, (self.kernel_size-1)//2),
+        #     nn.MaxPool1d(3),
+        #     ConvNorm(self.hidden_size, self.hidden_size, self.kernel_size, (self.kernel_size-1)//2),
+        # )
+        self.fc = nn.Linear(parameters[-1]['output_channel'], hparams.embed_size)
 
         self.num_pos_samples = hparams.num_pos_samples
         self.num_neg_samples = hparams.num_neg_samples
