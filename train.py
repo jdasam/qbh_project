@@ -308,6 +308,7 @@ if __name__ == '__main__':
     parser.add_argument('--loss_margin', type=float)
 
     parser.add_argument('--use_attention', type=lambda x: (str(x).lower() == 'true'))
+    parser.add_argument('--use_context_attention', type=lambda x: (str(x).lower() == 'true'))
     parser.add_argument('--use_pre_encoder', type=lambda x: (str(x).lower() == 'true'))
     parser.add_argument('--use_rnn', type=lambda x: (str(x).lower() == 'true'))
     parser.add_argument('--is_scheduled', type=lambda x: (str(x).lower() == 'true'))

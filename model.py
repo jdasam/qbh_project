@@ -84,7 +84,7 @@ class CnnEncoder(nn.Module):
             if hparams.use_context_attention:
                 self.final_attention = ContextAttention(parameters[-1]['output_channel'], num_head=hparams.num_head)
             else:
-                self.final_attention = SimpleAttention(hparams.hidden_size)
+                self.final_attention = SimpleAttention(parameters[-1]['output_channel'])
         else:
             self.use_attention = False
 
