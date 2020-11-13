@@ -82,7 +82,7 @@ class CnnEncoder(nn.Module):
         if hparams.use_attention:
             self.use_attention = True
             if hparams.use_context_attention:
-                self.final_attention = ContextAttention(hparams.hidden_size, num_head=hparams.num_head)
+                self.final_attention = ContextAttention(parameters[-1]['output_channel'], num_head=hparams.num_head)
             else:
                 self.final_attention = SimpleAttention(hparams.hidden_size)
         else:
@@ -90,7 +90,7 @@ class CnnEncoder(nn.Module):
 
         if hparams.use_rnn:
             self.use_rnn = True
-            self.final_rnn = nn.GRU(input_size=hparams.hidden_size, hidden_size=hparams.hidden_size, num_layers=1, batch_first=True)
+            self.final_rnn = nn.GRU(input_size=parameters[-1]['output_channel'], hidden_size=hparams.hidden_size, num_layers=1, batch_first=True)
         else:
             self.use_rnn = False
 
