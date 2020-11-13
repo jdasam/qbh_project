@@ -304,6 +304,9 @@ if __name__ == '__main__':
     parser.add_argument('--model_code', type=str)
     parser.add_argument('--optimizer_type', type=str)
     parser.add_argument('--num_neg_samples', type=int)
+    parser.add_argument('--num_layers', type=int)
+    parser.add_argument('--loss_margin', type=float)
+
     parser.add_argument('--use_attention', type=lambda x: (str(x).lower() == 'true'))
     parser.add_argument('--use_pre_encoder', type=lambda x: (str(x).lower() == 'true'))
     parser.add_argument('--use_rnn', type=lambda x: (str(x).lower() == 'true'))
