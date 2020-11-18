@@ -253,14 +253,14 @@ def train(output_directory, log_directory, checkpoint_path, warm_start, hparams)
                 is_best = valid_score > best_valid_score
                 best_valid_score = max(valid_score, best_valid_score)
                 if is_best:
-                    checkpoint_path = output_directory / 'checkpoint_best'
+                    checkpoint_path = output_directory / 'checkpoint_best.pt'
                     # checkpoint_path = os.path.join(output_directory, "checkpoint_best")
                     # checkpoint_path = os.path.join(
                     #     output_directory, "checkpoint_{}".format(iteration))
                     save_checkpoint(model, optimizer, learning_rate, iteration,
                                     checkpoint_path)
                 else:
-                    checkpoint_path = output_directory / 'checkpoint_last'
+                    checkpoint_path = output_directory / 'checkpoint_last.pt'
                     save_checkpoint(model, optimizer, learning_rate, iteration,
                                     checkpoint_path)
                 # torch.cuda.empty_cache()
