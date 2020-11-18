@@ -16,18 +16,18 @@ class ConvNorm(nn.Module):
 
 
 class Res_1d(nn.Module):
-    def __init__(self, input_channels, output_channels, shape=3, stride=2):
+    def __init__(self, input_channels, output_channels, shape, padding):
         super(Res_1d, self).__init__()
         # convolution
-        self.conv_1 = nn.Conv1d(input_channels, output_channels, shape, stride=stride, padding=shape//2)
+        self.conv_1 = nn.Conv1d(input_channels, output_channels, shape, padding=padding)
         self.bn_1 = nn.BatchNorm1d(output_channels)
-        self.conv_2 = nn.Conv1d(output_channels, output_channels, shape, padding=shape//2)
+        self.conv_2 = nn.Conv1d(output_channels, output_channels, shape, padding=padding)
         self.bn_2 = nn.BatchNorm1d(output_channels)
 
         # residual
         self.diff = False
-        if (stride != 1) or (input_channels != output_channels):
-            self.conv_3 = nn.Conv1d(input_channels, output_channels, shape, stride=stride, padding=shape//2)
+        if input_channels != output_channels:
+            self.conv_3 = nn.Conv1d(input_channels, output_channels, shape, padding=padding)
             self.bn_3 = nn.BatchNorm1d(output_channels)
             self.diff = True
         self.relu = nn.ReLU()
