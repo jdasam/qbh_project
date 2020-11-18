@@ -49,14 +49,19 @@ def with_reduction(x, ratio=0.2):
 def with_masking(x, ratio=0.2):
     masking_len = int(x.shape[0] * ratio)
     if masking_len == 0:
-        masking_len += 1
+        return x
     rand = random.random()
-    if rand < 1/3:
-        return x[masking_len:]
-    elif rand < 2/3:
-        return x[masking_len//2:-masking_len//2]
-    else:
-        return x[:-masking_len]
+    former_mask_len = int(rand * masking_len)
+    later_mask_len = masking_len - former_mask_len
+
+    return x[former_mask_len:-later_mask_len]
+
+    # if rand < 1/3:
+    #     return x[masking_len:]
+    # elif rand < 2/3:
+    #     return x[masking_len//2:-masking_len//2]
+    # else:
+    #     return x[:-masking_len]
     
 def melody_dict_to_array(melody_dict):
     contour = melody_dict['melody']
