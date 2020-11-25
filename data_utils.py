@@ -13,38 +13,7 @@ import melody_augmentation as mel_aug
 import json
 from sampling_utils import downsample_contour
 from segmentation_utils import find_melody_seg_fast
-
-
-
-class MelodyLoader:
-    def __init__(self, in_midi_pitch=False):
-        self.seg_thresh = 50
-        self.init_seg_thresh = 1000
-        self.min_mel_length = 500
-        self.min_pitch_len = 10
-        self.enlong_len = 10
-        self.min_vocal_ratio = 0.4
-        self.min_melody_ratio = 0.3
-        self.max_length = 2000
-        self.in_midi_pitch = in_midi_pitch
-        
-    def get_split_contour(self, path):
-        if isinstance(path, str):
-            path = Path(path)
-        contour = load_melody(path)
-        contour = quantizing_hz(contour, self.in_midi_pitch, self.is_quantized)
-        melody_idxs = find_melody_seg_fast(contour, self.seg_thresh, self.max_length, self.min_mel_length)
-        song_len = len(contour)
-        melody_len = sum([x[1]- x[0] for x in melody_idxs])
-        if melody_len / song_len  > self.min_melody_ratio:
-            return [{'melody': contour[x[0]:x[1]],
-                    'song_id': int(path.stem[6:]),
-                    'frame_pos': x
-                    }
-                    for x in melody_idxs]
-            # return [(contour[x[0]:x[1]], int(path.stem[6:]), x) for x in melody_idxs]
-        else:
-            return None
+from melody_utils import MelodyLoader
         
 
 class ContourSet:
@@ -302,7 +271,8 @@ if __name__ == '__main__':
     with open('flo_metadata.dat', 'rb') as f:
         metadata = pickle.load(f)
     # selected_genres = [29]
-    selected_genres = [4]
+    # selected_genres = [4]
+    selected_genres = [4, 12, 13, 17, 10, 7,15, 11, 9]
 
     song_ids = get_song_ids_of_selected_genre(metadata, selected_genre=selected_genres)
 
@@ -312,5 +282,36 @@ if __name__ == '__main__':
     # loader = MelodyLoader()
     # tokens = loader(pitch_path)
 
-    contour_set = ContourSet('/home/svcapp/userdata/musicai/flo_data/', song_ids, quantized=False)
-    contour_set.save_melody('/home/svcapp/userdata/flo_melody/contour_kor_ballade_norm.json') 
+    contour_set = ContourSet('/home/svcapp/userdata/flo_data_backup/', song_ids, quantized=False)
+    contour_set.save_melody('/home/svcapp/userdata/flo_melody/contour_new.json') 
+
+# 61.57743176094967 5.62532396823295
+'''
+해외 메탈 18
+국내 발라드 4
+해외 힙합 14
+기타 30
+클래식 20
+재즈 22
+국내 락/메탈 12
+해외 팝 13
+월드뮤직 26
+해외 락 17
+J-POP 25
+뉴에이지 21
+국내 알앤비 7
+CCM 28
+해외 알앤비 15
+맘/태교 24
+OST/BGM 19
+국내 댄스/일렉 5
+해외 일렉트로닉 16
+트로트 8
+국내 포크/블루스 11
+키즈 23
+국내 인디 9
+종교음악 29
+국악 27
+국내 팝/어쿠스틱 10
+국내 힙합 6
+'''
