@@ -1,7 +1,7 @@
 import os
 import time
 import argparse
-import pickle
+import _pickle as pickle
 
 from math import inf as mathinf
 from simplejson import dump as json_dump, load as json_load
@@ -15,7 +15,7 @@ from torch.utils.data import DataLoader
 # from adamp import AdamP
 
 from model import ContourEncoder, CnnEncoder
-from data_utils import ContourSet, ContourCollate, pad_collate
+from data_utils import ContourSet, ContourCollate, pad_collate, WindowedContourSet
 from torch.optim.lr_scheduler import StepLR
 from logger import Logger
 from hparams import HParams
@@ -29,14 +29,15 @@ from metalearner.api import scalars
 def prepare_dataloaders(hparams, valid_only=False):
     # Get data, data loaders and collate function ready
     with open(hparams.contour_path, 'rb') as f:
-        pre_loaded_data = json_load(f)
+        # pre_loaded_data = json_load(f)
+        pre_loaded_data = pickle.load(f)
     if hparams.is_scheduled:
         min_aug=1
     else:
         min_aug=10
-    trainset = ContourSet(pre_loaded_data, set_type='train', pre_load=True, num_aug_samples=hparams.num_pos_samples, num_neg_samples=hparams.num_neg_samples, min_aug=min_aug)
-    entireset = ContourSet(pre_loaded_data, set_type='entire', pre_load=True, num_aug_samples=0, num_neg_samples=0)
-    validset =  ContourSet(pre_loaded_data, set_type='valid', pre_load=True, num_aug_samples=4, num_neg_samples=0, min_aug=10)
+    trainset = WindowedContourSet(pre_loaded_data, set_type='train', pre_load=True, num_aug_samples=hparams.num_pos_samples, num_neg_samples=hparams.num_neg_samples, min_aug=min_aug)
+    entireset = WindowedContourSet(pre_loaded_data, set_type='entire', pre_load=True, num_aug_samples=0, num_neg_samples=0)
+    validset =  WindowedContourSet(pre_loaded_data, set_type='valid', pre_load=True, num_aug_samples=4, num_neg_samples=0, min_aug=10)
 
     train_loader = DataLoader(trainset, hparams.batch_size, shuffle=True,num_workers=hparams.num_workers,
         collate_fn=ContourCollate(hparams.num_pos_samples, hparams.num_neg_samples, for_cnn=True), pin_memory=True)
@@ -224,7 +225,7 @@ def train(output_directory, log_directory, checkpoint_path, warm_start, hparams)
     scheduler = StepLR(optimizer, step_size=hparams.learning_rate_decay_steps,
                        gamma=hparams.learning_rate_decay_rate)
     model.train()
-    criterion = SiameseLoss(margin=hparams.loss_margin)
+    criterion = SiameseLoss(margin=hparams.loss_margin, use_euclid=hparams.use_euclid)
     best_valid_score = 0
     # ================ MAIN TRAINNIG LOOP! ===================
     for epoch in range(epoch_offset, hparams.epochs):

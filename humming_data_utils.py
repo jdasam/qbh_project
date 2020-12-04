@@ -4,6 +4,8 @@ import numpy as np
 import pandas as pd
 import _pickle as pickle
 import csv
+from melody_utils import pitch_array_to_formatted
+from sampling_utils import downsample_contour_array
 
 
 class HummingDB:
@@ -13,8 +15,25 @@ class HummingDB:
         self.song_list = list(self.data_path.rglob('*.wav'))
         self.samples = [make_humming_sample_dictionary(path, df_a, df_b) for path in self.song_list]
         self.num_songs = len(self.song_list)
-
+        
     def __getitem__(self, index):
+        selected_sample = self.samples[index]
+        contour = get_normalized_contour_from_sample(selected_sample)
+        
+        orig_audio_path = get_orig_audio_path_by_id(selected_sample['track_id'], self.audio_path)
+        orig_pitch_path = audio_path_to_pitch_path(orig_audio_path)
+        orig_contour = load_melody_txt(orig_pitch_path)
+        orig_contour = pitch_array_to_formatted(orig_contour)
+        # orig_contour = downsample_contour_array(orig_contour)
+        # orig_contour[np.isnan(orig_contour)] = 0
+
+        
+        time_pos = selected_sample['time_stamp'].split('-')
+        start_position = int(time_pos[0]) * 10
+        end_position = int(time_pos[1]) * 10
+        return contour, orig_contour[start_position:end_position]
+
+    def _get_audio(self, index):
         selected_sample = self.samples[index]
         song_path = selected_sample['path']
         song = AudioSegment.from_file(song_path, 'wav')._data
@@ -30,6 +49,16 @@ class HummingDB:
                         
         return decoded, orig_decoded[start_position:end_position], selected_sample
 
+    def __len__(self):
+        return len(self.samples)
+
+def get_normalized_contour_from_sample(selected_sample):
+    humm_melody = load_crepe_pitch(selected_sample['pitch_path'])
+    humm_melody = pitch_array_to_formatted(humm_melody)
+    # humm_melody = downsample_contour_array(humm_melody)
+    # humm_melody[np.isnan(humm_melody)] = 0
+    return humm_melody
+
 def get_orig_audio_path_by_id(track_id, audio_dir):
     track_id = str(track_id)
     orig_audio_path = audio_dir / track_id[:3] / track_id[3:6] / (track_id +'.aac')
@@ -42,11 +71,13 @@ def get_orig_audio_path_by_id(track_id, audio_dir):
 def audio_path_to_pitch_path(path):
     return path.parent / f'pitch_{path.stem}.txt'
 
-def load_melody_txt(path):
+def load_melody_txt(path, to_midi_pitch=True):
     with open(path, "r") as f:
         lines = f.readlines()
-    return [float(x.split(' ')[1][:-2]) for x in lines]
-
+    data = np.asarray([float(x.split(' ')[1][:-2]) for x in lines])
+    if to_midi_pitch:
+        data[data>0] = np.log2(data[data>0]/440) * 12 + 69
+    return data
 
 def make_humming_sample_dictionary(path, df_a, df_b):
     sample = {}
@@ -105,14 +136,24 @@ def load_pitch_csv(pitch_path):
     with open(pitch_path, newline='') as f:
         reader = csv.reader(f)
         data = list(reader)
+        
     data = np.asarray(data[1:], dtype='float32')
     return data
 
-def load_crepe_pitch(pitch_path, threshold=0.7):
+def load_crepe_pitch(pitch_path, threshold=0.7, to_midi_pitch=True):
     pitch_data = load_pitch_csv(pitch_path)
     pitch_data[pitch_data[:,2]<threshold, 1] = 0
     pitch_data = pitch_data[:,1]
+    if to_midi_pitch:
+        pitch_data[pitch_data>0] = np.log2(pitch_data[pitch_data>0]/440) * 12 + 69
     return pitch_data
+
+def pitch_array_to_formatted(pitch_array, mean=61.702336487738215, std=5.5201786930065415):
+    output = np.zeros((len(pitch_array), 2))
+    output[pitch_array!=0,1] = 1
+    output[:,0] = (pitch_array - mean) / std
+    output[output[:,1]==0, 0]= 0
+    return output
 
 if __name__ == "__main__":
     selected_100, selected_900 = load_meta_from_excel()

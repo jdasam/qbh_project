@@ -10,25 +10,33 @@ def cross_entropy(pred, target):
 
 
 class SiameseLoss:
-    def __init__(self, margin=0.4):
-        self.similiarity_fn = torch.nn.CosineSimilarity(-1, eps=1e-6)
+    def __init__(self, margin=0.4, use_euclid=False):
+        if use_euclid:
+            # self.similiarity_fn = torch.dist
+            def euclidean_sim(x,y):
+                distance = torch.dist(x,y)
+                num_samples = x.shape[0] * max(x.shape[1], y.shape[1])
+                return  (num_samples - distance) / num_samples
+            self.similiarity_fn = euclidean_sim 
+        else:
+            self.similiarity_fn = torch.nn.CosineSimilarity(-1, eps=1e-6)
         self.margin = margin
 
     def cal_similarity(self, anchor, pos, neg):
-        if anchor.shape[0] != neg.shape[0]:
-            neg = neg.reshape(anchor.shape[0], -1, anchor.shape[-1])
-            num_neg_sample = neg.shape[1]
-            anchor_tiled = anchor.repeat(num_neg_sample, 1, 1).transpose(0,1)
-            neg_similarity = self.similiarity_fn(anchor_tiled, neg)
-        else:
-            neg_similarity = self.similiarity_fn(anchor, neg)
-        if anchor.shape[0] != pos.shape[0]:
-            pos = pos.reshape(anchor.shape[0], -1, anchor.shape[-1])
-            num_pos_sample = neg.shape[1]
-            anchor_tiled = anchor.repeat(num_pos_sample, 1, 1).transpose(0,1)
-            pos_similarity = self.similiarity_fn(anchor_tiled, pos)
-        else:
-            pos_similarity = self.similiarity_fn(anchor, pos)
+        # if anchor.shape[1] != neg.shape[1]:
+        #     # neg = neg.reshape(anchor.shape[0], -1, anchor.shape[-1])
+        #     num_neg_sample = neg.shape[1]
+        #     anchor_tiled = anchor.unsqueeze(1).repeat(1, num_neg_sample, 1, 1).squeeze(2)
+        #     neg_similarity = self.similiarity_fn(anchor_tiled, neg)
+        # else:
+        neg_similarity = self.similiarity_fn(anchor, neg)
+        # if anchor.shape[1] != pos.shape[1]:
+        #     # pos = pos.reshape(anchor.shape[0], -1, anchor.shape[-1])
+        #     num_pos_sample = neg.shape[1]
+        #     anchor_tiled = anchor.unsqueeze(1).repeat(1, num_neg_sample, 1, 1).squeeze(2)
+        #     pos_similarity = self.similiarity_fn(anchor_tiled, pos)
+        # else:
+        pos_similarity = self.similiarity_fn(anchor, pos)
         return pos_similarity, neg_similarity
 
     def max_hinge_loss(self, anchor, pos, neg):

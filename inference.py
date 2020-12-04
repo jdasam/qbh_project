@@ -13,7 +13,6 @@ from datetime import datetime
 
 import torch
 from torch.utils.data import DataLoader
-from adamp import AdamP
 
 from model import ContourEncoder, CnnEncoder
 from data_utils import ContourSet, ContourCollate, pad_collate
@@ -21,16 +20,14 @@ from torch.optim.lr_scheduler import StepLR
 from logger import Logger
 from hparams import HParams
 from loss_function import SiameseLoss
-from validation import get_contour_embeddings, cal_ndcg, cal_ndcg_single
-
-from metalearner.common.config import experiment, worker
-from metalearner.api import scalars
+from validation import get_contour_embeddings, cal_ndcg, cal_ndcg_single, get_contour_embs_from_overlapped_contours
 
 
-def prepare_dataloaders(hparams, valid_only=False):
+def prepare_dataloaders(hparams, contour_path):
     # Get data, data loaders and collate function ready
-    with open(hparams.contour_path, 'rb') as f:
-        pre_loaded_data = json_load(f)
+    with open(contour_path, 'rb') as f:
+        # pre_loaded_data = json_load(f)
+        pre_loaded_data = pickle.load(f)
     entireset = ContourSet(pre_loaded_data, set_type='entire', pre_load=True, num_aug_samples=0, num_neg_samples=0)
     entire_loader = DataLoader(entireset, hparams.valid_batch_size, shuffle=False,num_workers=hparams.num_workers,
         collate_fn=ContourCollate(0, 0, for_cnn=True), pin_memory=True, drop_last=False)
@@ -55,8 +52,7 @@ def load_checkpoint(checkpoint_path, model):
     checkpoint_dict = torch.load(checkpoint_path, map_location='cpu')
     model.load_state_dict(checkpoint_dict['state_dict'])
     iteration = checkpoint_dict['iteration']
-    print("Loaded checkpoint '{}' from iteration {}" .format(
-        checkpoint_path, iteration))
+    print(f"Loaded checkpoint '{checkpoint_path}' from iteration {iteration}")
     return model
 
 
@@ -94,7 +90,7 @@ def validate_classification_error(predicted, answer, threshold=0.6):
 
 
 
-def inference(output_directory, checkpoint_path, hparams):
+def inference(contour_path, output_directory, checkpoint_path, hparams):
     """Training and validation logging results to tensorboard and stdout
 
     Params
@@ -108,14 +104,17 @@ def inference(output_directory, checkpoint_path, hparams):
     """
 
     model = load_model(hparams)
-    entire_loader = prepare_dataloaders(hparams)
+    # entire_loader = prepare_dataloaders(hparams, contour_path)
     # train_loader,val_loader, cmp_loader, _ = prepare_dataloaders(hparams)
 
     model = load_checkpoint(checkpoint_path, model)
-
+    with open(contour_path, 'rb') as f:
+        dataset = pickle.load(f)
     model.eval()
-    total_embs, total_song_ids = get_contour_embeddings(model, entire_loader)
-    torch.save({'embs':total_embs.cpu(), 'ids':total_song_ids.cpu()}, output_directory/"embedding.pt", )
+    # total_embs, total_song_ids = get_contour_embeddings(model, entire_loader)
+    total_embs, total_song_ids = get_contour_embs_from_overlapped_contours(model, dataset)
+    torch.save({'embs':total_embs.cpu(), 'ids':total_song_ids, 'pos':[x['frame_pos'] for x in dataset]},
+               output_directory/"kor_bal_embedding.pt", )
 
 
 if __name__ == '__main__':
@@ -161,4 +160,4 @@ if __name__ == '__main__':
     
     output_directory = Path(args.output_directory) 
 
-    inference(output_directory, args.checkpoint_path, hparams)
+    inference('/home/svcapp/userdata/flo_melody/contour_ballade_overlap.dat',output_directory, args.checkpoint_path, hparams)

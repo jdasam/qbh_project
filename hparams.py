@@ -20,7 +20,7 @@ class HParams:
         self.mel_dir_path = "/home/svcapp/userdata/musicai/melon/arena_mel"
         self.pitch_path = '/home/svcapp/userdata/flo_melody/melody_subgenre.dat'
         # self.contour_path = '/home/svcapp/userdata/flo_melody/contour_subgenre_norm.json'
-        self.contour_path = 'contour_tiny.json'
+        self.contour_path = '/home/svcapp/userdata/flo_melody/overlapped.dat'
 
         ################################
         # Model Parameters             #
@@ -60,6 +60,7 @@ class HParams:
         self.valid_batch_size = 64
         self.drop_out = 0.2
         self.loss_margin = 0.5
+        self.use_euclid = False
         self.model_code='contour_scheduled'
         self.pos_loss_weight = 1e4
         self.num_neg_samples = 4

@@ -45,6 +45,12 @@ def with_addition(x, ratio=0.2):
 def with_reduction(x, ratio=0.2):
     return
 
+def with_dropout(x, ratio=0.3):
+    masking_idx = int(x.shape[0] * random.random())
+    masking_len = int(x.shape[0] * ratio)
+    out = np.copy(x)
+    out[masking_idx:masking_idx + masking_len] = 0
+    return out
 
 def with_masking(x, ratio=0.2):
     masking_len = int(x.shape[0] * ratio)
@@ -158,6 +164,9 @@ def make_augmented_melody(melody_array, aug_keys):
             aug_melody = downsample_with_different_tempo(aug_melody, global_tempo, slice_ids)
     else:
         aug_melody = downsample_contour_array(aug_melody)
+        
+    if 'drop_out' in aug_keys:
+        aug_melody = with_dropout(aug_melody)
 
     if 'key' in aug_keys:
         aug_melody = with_different_key(aug_melody)

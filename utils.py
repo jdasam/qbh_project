@@ -4,10 +4,10 @@ def cal_conv_parameters(hparams, cnn_input_size):
     num_layers = hparams.num_layers
     parameters = [{'input_channel':0, 'output_channel':0, 'max_pool':0} for i in range(num_layers)]
     
-    mean_pool_size = 80 ** (1/ (num_layers-1))
+    mean_pool_size = 160 ** (1/ (num_layers-1))
     base_pool_size = int(mean_pool_size)
     num_longer_pool = int( (mean_pool_size - base_pool_size) * (num_layers-1))
-    assert base_pool_size ** (num_layers-1-num_longer_pool) * (base_pool_size+1) ** (num_longer_pool) < 80
+    assert base_pool_size ** (num_layers-1-num_longer_pool) * (base_pool_size+1) ** (num_longer_pool) < 160
 
     for param in parameters[:num_longer_pool]:
         param['max_pool'] = base_pool_size + 1

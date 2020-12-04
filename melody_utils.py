@@ -134,7 +134,7 @@ class MelodyCollate:
         # return torch.nn.utils.rnn.pack_padded_sequence(dummy, input_lengths, batch_first=True)
 
 class MelodyLoader:
-    def __init__(self, is_quantized=True, in_midi_pitch=False):
+    def __init__(self, is_quantized=True, in_midi_pitch=True):
         self.q_pitch, self.q_boundary = make_quantization_info(low_pitch=110)
         self.seg_thresh = 50
         self.init_seg_thresh = 1000
@@ -172,6 +172,19 @@ class MelodyLoader:
             # return [(contour[x[0]:x[1]], int(path.stem[6:]), x) for x in melody_idxs]
         else:
             return None
+    
+    def get_overlapped_contours(self, path, win_size=2000, hop_size=500):
+        contour = load_melody(path)
+        contour = quantizing_hz(contour, self.in_midi_pitch, self.is_quantized)
+        # melody_ds = downsample_contour(contour)
+        
+        melody_form = pitch_array_to_formatted(np.asarray(contour))
+        slice_pos = list(range(0, melody_form.shape[0] - win_size, hop_size))
+        slice_pos.append(melody_form.shape[0] - win_size)
+        overlapped_melodies = [{'contour': melody_form[i:i+win_size],
+                                'song_id': int(path.stem[6:]),
+                                'frame_pos': (i, i+win_size)}for i in slice_pos if sum(melody_form[i:i+win_size, 1]) > win_size/4 ]
+        return overlapped_melodies
         
     def __call__(self, path):
         quantized_melodies = self.get_split_contour(path)
@@ -549,6 +562,13 @@ def merge_voice_slice(voice_slice, index):
 def get_length_and_distance_of_melody(voice_slice):
     return [ (voice_slice[i][1]-voice_slice[i][0], voice_slice[i+1][0]-voice_slice[i][1]) for i in range(len(voice_slice)-1)] + [(voice_slice[-1][1]-voice_slice[-1][0], 10000 )]
 
+
+def pitch_array_to_formatted(pitch_array, mean=61.702336487738215, std=5.5201786930065415):
+    output = np.zeros((len(pitch_array), 2))
+    output[pitch_array!=0,1] = 1
+    output[:,0] = (pitch_array - mean) / std
+    output[output[:,1]==0, 0]= 0
+    return output
 
 if __name__ == '__main__':
     dataset = MelodyDataset('/home/svcapp/userdata/musicai/flo_data/')

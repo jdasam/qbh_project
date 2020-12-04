@@ -11,9 +11,10 @@ import random
 import copy
 import melody_augmentation as mel_aug
 import json
-from sampling_utils import downsample_contour
+from sampling_utils import downsample_contour, downsample_contour_array
 from segmentation_utils import find_melody_seg_fast
 from melody_utils import MelodyLoader
+import humming_data_utils as humm_utils
         
 
 class ContourSet:
@@ -24,8 +25,8 @@ class ContourSet:
             self.melody_loader = MelodyLoader(in_midi_pitch=True, is_quantized=quantized)
 
             self.contours = self.load_melody()
-            self.pitch_mean, self.pitch_std = get_pitch_stat(self.contours)
-            print(self.pitch_mean, self.pitch_std)
+            # self.pitch_mean, self.pitch_std = get_pitch_stat(self.contours)
+            # print(self.pitch_mean, self.pitch_std)
             # for i in tqdm(range(len(self.contours))):
             #     cont = self.contours[i]
             #     norm_cont = normalize_contour(cont['melody'], self.pitch_mean, self.pitch_std)
@@ -42,7 +43,7 @@ class ContourSet:
             self.contours = path
         self.num_neg_samples = num_neg_samples
         self.num_aug_samples = num_aug_samples
-        self.aug_keys = ['tempo', 'key', 'std', 'masking', 'pitch_noise', 'fill']
+        self.aug_keys = ['tempo', 'key', 'std', 'masking', 'pitch_noise', 'fill', 'drop_out']
         # self.aug_types = ['different_tempo', 'different_key']
         self.down_f = 10
         self.set_type = set_type
@@ -57,15 +58,18 @@ class ContourSet:
 
     def load_melody(self):
         # melody_txt_list = self.path.rglob('*.txt')
-        contours = [self.melody_loader.get_split_contour(txt) for txt in tqdm(self.melody_txt_list)]
+        # contours = [self.melody_loader.get_split_contour(txt) for txt in tqdm(self.melody_txt_list)]
+        contours = [self.melody_loader.get_overlapped_contours(txt) for txt in tqdm(self.melody_txt_list)]
         contours = [x for x in contours if x is not None]
         contours = [y for x in contours for y in x]
         return contours
     
     def save_melody(self, out_path):
         # contours = self.load_melody()
-        with open(out_path, 'w') as f:
-            json.dump(self.contours, f)
+        # with open(out_path, 'w') as f:
+        #     json.dump(self.contours, f)
+        with open(out_path, 'wb') as f:
+            pickle.dump(self.contours, f)
 
     def __len__(self):
         return len(self.contours)
@@ -115,6 +119,80 @@ class ContourSet:
             neg_idx = random.randint(0, len(self)-1)
             if self.contours[neg_idx]['song_id'] != selected_song_id:
                 neg_samples.append(downsample_contour(self.contours[neg_idx]['melody'], self.contours[neg_idx]['is_vocal'], self.down_f))
+        return downsampled_melody, aug_samples, neg_samples
+
+
+
+class WindowedContourSet:
+    def __init__(self, path, song_ids=[], num_aug_samples=4, num_neg_samples=4, quantized=True, pre_load=False, set_type='entire', min_aug=1):
+        if not pre_load:
+            self.path = Path(path)
+            self.melody_txt_list = [song_id_to_pitch_txt_path(self.path, x) for x in song_ids]
+            self.melody_loader = MelodyLoader(in_midi_pitch=True, is_quantized=quantized)
+
+            self.contours = self.load_melody()
+
+        else:
+            self.contours = path
+        self.num_neg_samples = num_neg_samples
+        self.num_aug_samples = num_aug_samples
+        self.aug_keys = ['tempo', 'key', 'std', 'masking', 'pitch_noise', 'fill']
+        # self.aug_types = ['different_tempo', 'different_key']
+        self.down_f = 10
+        self.set_type = set_type
+        self.min_aug = min_aug
+
+        if set_type =='train':
+            self.contours = self.contours[:int(len(self)*0.8)]
+        elif set_type =='valid':
+            self.contours = self.contours[int(len(self)*0.8):int(len(self)*0.9)]
+        elif set_type == 'test':
+            self.contours = self.contours[int(len(self)*0.9):]
+
+    def load_melody(self):
+        contours = [self.melody_loader.get_overlapped_contours(txt) for txt in tqdm(self.melody_txt_list)]
+        contours = [x for x in contours if x is not None and x != []]
+        contours = [y for x in contours for y in x]
+        return contours
+    
+    def save_melody(self, out_path):
+        with open(out_path, 'wb') as f:
+            pickle.dump(self.contours, f)
+
+    def __len__(self):
+        return len(self.contours)
+
+    def __getitem__(self, index):
+        """
+        for training:
+        return: (downsampled_melody, [augmented_melodies], [negative_sampled_melodies])
+        for validation:
+        return: ([augmented_melodies], [selected_song_id])
+        """
+        selected_melody = self.contours[index]['contour']
+        selected_song_id = self.contours[index]['song_id']
+        downsampled_melody = downsample_contour_array(selected_melody)
+
+        if self.set_type == 'entire':
+            return downsampled_melody, selected_song_id
+
+        aug_samples = []
+        neg_samples = []
+        
+        if self.min_aug < len(self.aug_keys):
+            aug_samples = [mel_aug.make_augmented_melody(selected_melody, random.sample(self.aug_keys, random.randint(self.min_aug,len(self.aug_keys)))) for i in range(self.num_aug_samples)]
+        else:
+            aug_samples = [mel_aug.make_augmented_melody(selected_melody,self.aug_keys) for i in range(self.num_aug_samples)]
+        
+        if self.set_type == 'valid':
+            return aug_samples, [selected_song_id] * len(aug_samples)
+            # return [downsampled_melody] * len(aug_samples), [selected_song_id] * len(aug_samples)
+
+        # sampling negative melodies
+        while len(neg_samples) < self.num_neg_samples:
+            neg_idx = random.randint(0, len(self)-1)
+            if self.contours[neg_idx]['song_id'] != selected_song_id:
+                neg_samples.append(downsample_contour_array(self.contours[neg_idx]['contour'], self.down_f))
         return downsampled_melody, aug_samples, neg_samples
 
 
@@ -204,6 +282,14 @@ class ContourCollate:
             return mels[:, 0, :, :], mels[:, 1, :, :], mels[:, 2, :, :]
 
 
+class HummingData:
+    def __init__(self, path):
+        selected_100, selected_900 = humm_utils.load_meta_from_excel()
+        self.humming_db = humm_utils.HummingDB('/home/svcapp/userdata/humming_db', '/home/svcapp/userdata/flo_data_backup/', selected_100, selected_900)
+        self.contour_pitch = [x for x in self.humming_db]
+        
+        
+        
 
 def quantizing_hz(contour, to_midi=False, quantization=True):
     if quantization is False and to_midi is False:
@@ -264,28 +350,38 @@ def get_pitch_stat(contours):
 
 def song_id_to_pitch_txt_path(path, song_id):
     # path: pathlib.Path()
-    return path / str(song_id)[:3] / str(song_id)[3:6] / 'pitch_{}.txt'.format(song_id)
-
+    txt_path = path / str(song_id)[:3] / str(song_id)[3:6] / 'pitch_{}.txt'.format(song_id)
+    if not txt_path.exists():
+        txt_path = path / 'qbh' / f'pitch_{song_id}.txt'
+    return txt_path
+    # return path  / f'pitch_{song_id}.txt'
 
 if __name__ == '__main__':
     with open('flo_metadata.dat', 'rb') as f:
         metadata = pickle.load(f)
     # selected_genres = [29]
-    # selected_genres = [4]
-    selected_genres = [4, 12, 13, 17, 10, 7,15, 11, 9]
+    selected_genres = [4]
+    # selected_genres = [4, 12, 13, 17, 10, 7,15, 11, 9]
 
     song_ids = get_song_ids_of_selected_genre(metadata, selected_genre=selected_genres)
-
+    with open('humm_db_ids.dat', 'rb') as f:
+        humm_ids = pickle.load(f)
+    song_ids += humm_ids
+    # qbh_path = Path('/home/svcapp/userdata/flo_data_backup/qbh')
+    # song_ids += [int(x.stem)for x in qbh_path.rglob("*.aac")]
+    
     # dataset = MelodyDataset('/home/svcapp/userdata/musicai/flo_data/', song_ids=song_ids)
     # dataset.save('/home/svcapp/userdata/flo_melody/melody_kor_trot.dat')
     # pitch_path = '/home/svcapp/userdata/musicai/dev/teo/melodyExtraction_JDC/output/pitch_435845929.txt'
     # loader = MelodyLoader()
     # tokens = loader(pitch_path)
 
-    contour_set = ContourSet('/home/svcapp/userdata/flo_data_backup/', song_ids, quantized=False)
-    contour_set.save_melody('/home/svcapp/userdata/flo_melody/contour_new.json') 
+    contour_set = WindowedContourSet('/home/svcapp/userdata/flo_data_backup/', song_ids, quantized=False)
+    contour_set.save_melody('/home/svcapp/userdata/flo_melody/overlapped.dat') 
 
 # 61.57743176094967 5.62532396823295
+# (61.702336487738215, 5.5201786930065415) for '/home/svcapp/userdata/flo_melody/contour_subgenre_norm.json'
+
 '''
 해외 메탈 18
 국내 발라드 4
