@@ -90,7 +90,7 @@ class CnnEncoder(nn.Module):
 
         if hparams.use_rnn:
             self.use_rnn = True
-            self.final_rnn = nn.GRU(input_size=parameters[-1]['output_channel'], hidden_size=hparams.hidden_size, num_layers=1, batch_first=True)
+            self.final_rnn = nn.GRU(input_size=parameters[-1]['output_channel'], hidden_size=parameters[-1]['output_channel'], num_layers=1, batch_first=True)
         else:
             self.use_rnn = False
 
