@@ -20,7 +20,8 @@ class HParams:
         self.mel_dir_path = "/home/svcapp/userdata/musicai/melon/arena_mel"
         self.pitch_path = '/home/svcapp/userdata/flo_melody/melody_subgenre.dat'
         # self.contour_path = '/home/svcapp/userdata/flo_melody/contour_subgenre_norm.json'
-        self.contour_path = '/home/svcapp/userdata/flo_melody/overlapped.dat'
+        # self.contour_path = '/home/svcapp/userdata/flo_melody/overlapped.dat'
+        self.contour_path = 'humming_db_contour_pairs.dat'
 
         ################################
         # Model Parameters             #

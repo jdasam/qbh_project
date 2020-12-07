@@ -196,6 +196,60 @@ class WindowedContourSet:
         return downsampled_melody, aug_samples, neg_samples
 
 
+class HummingPairSet:
+    def __init__(self, contour_pairs, set_type, num_aug_samples=4, num_neg_samples=4 ):
+        # with open(path, "rb") as f:
+        #     self.contour_pairs = pickle.load(f)
+        self.contours = contour_pairs
+        self.num_neg_samples = num_neg_samples
+        self.num_aug_samples = num_aug_samples
+        self.aug_keys = ['tempo', 'key', 'std', 'masking', 'pitch_noise', 'fill']
+        self.set_type = set_type
+        self.down_f = 10
+
+
+        assert len(self.contours) == 1400
+            
+        if set_type =='train':
+            self.contours = [x for x in self.contours if x['meta']['song_group']=="900"]
+        elif set_type =='valid':
+            self.contours = [x for x in self.contours if x['meta']['song_group']=="100" and x['meta']['singer_group']=="P"]
+        elif set_type == 'test':
+            self.contours = [x for x in self.contours if x['meta']['song_group']=="100" and x['meta']['singer_group']=="N"]
+
+    def __getitem__(self, index):
+        """
+        for training:
+        return: (downsampled_melody, [augmented_melodies], [negative_sampled_melodies])
+        for validation:
+        return: ([augmented_melodies], [selected_song_id])
+        """
+        selected_melody = self.contours[index]['humm']
+        original_melody = self.contours[index]['orig']
+        selected_song_id = self.contours[index]['meta']['track_id']
+        # downsampled_melody = downsample_contour_array(selected_melody)
+        orig_ds_melody = downsample_contour_array(original_melody)
+
+        aug_samples = []
+        neg_samples = []
+        
+        aug_samples = [mel_aug.make_augmented_melody(selected_melody,self.aug_keys) for i in range(self.num_aug_samples)]
+        
+        if self.set_type == 'valid':
+            return aug_samples, [selected_song_id] * len(aug_samples)
+            # return [downsampled_melody] * len(aug_samples), [selected_song_id] * len(aug_samples)
+
+        # sampling negative melodies
+        while len(neg_samples) < self.num_neg_samples:
+            neg_idx = random.randint(0, len(self)-1)
+            if self.contours[neg_idx]['meta']['track_id'] != selected_song_id:
+                neg_samples.append(downsample_contour_array(self.contours[neg_idx]['humm'], self.down_f))
+        return orig_ds_melody, aug_samples, neg_samples
+
+    def __len__(self):
+        return len(self.contours)
+
+
 def pad_collate(batch):
     seq = [torch.Tensor(x) for x in batch]
     return torch.nn.utils.rnn.pad_sequence(seq, batch_first=True)

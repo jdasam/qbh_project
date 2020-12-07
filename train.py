@@ -15,7 +15,7 @@ from torch.utils.data import DataLoader
 # from adamp import AdamP
 
 from model import ContourEncoder, CnnEncoder
-from data_utils import ContourSet, ContourCollate, pad_collate, WindowedContourSet
+from data_utils import ContourSet, ContourCollate, HummingPairSet, pad_collate, WindowedContourSet
 from torch.optim.lr_scheduler import StepLR
 from logger import Logger
 from hparams import HParams
@@ -26,6 +26,21 @@ from metalearner.common.config import experiment, worker
 from metalearner.api import scalars
 
 
+def prepare_humming_db_loaders(hparams):
+    with open(hparams.contour_path, "rb") as f:
+        contour_pairs = pickle.load(f)
+    train_set = HummingPairSet(contour_pairs, "train", num_aug_samples=hparams.num_pos_samples, num_neg_samples=hparams.num_neg_samples)
+    valid_set = HummingPairSet(contour_pairs, "valid", num_aug_samples=0, num_neg_samples=0)
+    test_set = HummingPairSet(contour_pairs, "test", num_aug_samples=0, num_neg_samples=0)
+    train_loader = DataLoader(train_set, hparams.batch_size, shuffle=True,num_workers=hparams.num_workers,
+        collate_fn=ContourCollate(hparams.num_pos_samples, hparams.num_neg_samples, for_cnn=True), pin_memory=True)
+    valid_loader = DataLoader(valid_set, hparams.valid_batch_size, shuffle=False,num_workers=hparams.num_workers,
+        collate_fn=ContourCollate(0, 0, for_cnn=True), pin_memory=True, drop_last=False)
+    test_loader = DataLoader(test_set, hparams.valid_batch_size, shuffle=False,num_workers=hparams.num_workers,
+        collate_fn=ContourCollate(0, 0, for_cnn=True), pin_memory=True, drop_last=False)
+
+    return train_loader, valid_loader, test_loader
+    
 def prepare_dataloaders(hparams, valid_only=False):
     # Get data, data loaders and collate function ready
     with open(hparams.contour_path, 'rb') as f:
@@ -202,7 +217,8 @@ def train(output_directory, log_directory, checkpoint_path, warm_start, hparams)
 
     logger = prepare_directories_and_logger(output_directory, log_directory)
     save_hparams(hparams, output_directory)
-    train_loader, val_loader, entire_loader = prepare_dataloaders(hparams)
+    # train_loader, val_loader, entire_loader = prepare_dataloaders(hparams)
+    train_loader, val_loader, test_loader = prepare_humming_db_loaders(hparams)
     # train_loader,val_loader, cmp_loader, _ = prepare_dataloaders(hparams)
 
     # Load checkpoint if one exists

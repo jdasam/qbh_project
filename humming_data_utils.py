@@ -27,11 +27,12 @@ class HummingDB:
         # orig_contour = downsample_contour_array(orig_contour)
         # orig_contour[np.isnan(orig_contour)] = 0
 
-        
         time_pos = selected_sample['time_stamp'].split('-')
-        start_position = int(time_pos[0]) * 10
-        end_position = int(time_pos[1]) * 10
-        return contour, orig_contour[start_position:end_position]
+        if len(time_pos) != 2:
+            print(selected_sample)
+        start_position = int(time_pos[0]) * 100
+        end_position = int(time_pos[1]) * 100
+        return {'humm':contour, 'orig':orig_contour[start_position:end_position], 'meta':selected_sample} 
 
     def _get_audio(self, index):
         selected_sample = self.samples[index]
@@ -113,7 +114,6 @@ def load_meta_from_excel(xlsx_path="/home/svcapp/userdata/humming_db/Spec.xlsx",
     selected_100 = pd.concat(selected_100, ignore_index=True)
     selected_900 = sheets[exp_id[4]]
 
-
     with open(meta_path, "rb") as f:
         data_dict = pickle.load(f)
     with open(meta_100_path, 'rb') as f:
@@ -158,6 +158,7 @@ def pitch_array_to_formatted(pitch_array, mean=61.702336487738215, std=5.5201786
 if __name__ == "__main__":
     selected_100, selected_900 = load_meta_from_excel()
     humming_db = HummingDB('/home/svcapp/userdata/humming_db', '/home/svcapp/userdata/flo_data_backup/', selected_100, selected_900)
-    print(humming_db.samples[0])
-
-    
+    # contour_pairs = [humming_db[i] for i in range(len(humming_db))]
+    contour_pairs = [x for x in humming_db]
+    with open('humming_db_contour_pairs.dat', "wb") as f:
+        pickle.dump(contour_pairs, f)
