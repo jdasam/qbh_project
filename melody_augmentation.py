@@ -182,5 +182,5 @@ def make_augmented_melody(melody_array, aug_keys):
     if 'fill' in aug_keys:
         # randomly fill non voice part 
         aug_melody = fill_non_voice_random(aug_melody)
-    aug_melody[np.isnan(aug_melody)] = 0
+    aug_melody[aug_melody[:,1]==0, 0] = 0
     return aug_melody

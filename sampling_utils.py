@@ -46,14 +46,14 @@ def downsample_contour_array(contour, down_f=10, down_type='sample'):
     contour_array[contour_array[:,1]==0, 0] = np.nan
     # contour_array = np.asarray(contour, dtype=float)
     contour_d = contour_array.reshape(-1,down_f,2)
-    # if down_type == 'mean':
-    #     contour_d = np.nanmean(contour_d, axis=1)
-    #     contour_d[np.isnan(contour_d)] = 0
-    # elif down_type == 'median':
-    #     contour_d = np.nanmedian(contour_d, axis=1)
-    #     contour_d[np.isnan(contour_d)] = 0
-    # else:
-    contour_d  = contour_d[:, 0]
+    if down_type == 'mean':
+        contour_d = np.nanmean(contour_d, axis=1)
+    elif down_type == 'median':
+        contour_d = np.nanmedian(contour_d, axis=1)
+    else:
+        contour_d  = contour_d[:, 0]
+    
+    contour_d[np.isnan(contour_d)] = 0
     return contour_d
 
 def downsample_with_float_list(contour, is_vocal, down_f=10, down_type='median'):
