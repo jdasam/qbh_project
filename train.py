@@ -124,12 +124,15 @@ def load_hparams(checkpoint_path):
         return pickle.load(f)
 
 def convert_hparams_to_string(hparams):
-    return '{}_hidden{}_lr{}_{}/'.format(
+    out_string =  '{}_hidden{}_lr{}_{}/'.format(
         hparams.model_code, 
         hparams.hidden_size, 
         hparams.learning_rate, 
         datetime.now().strftime('%y%m%d-%H%M%S')
         )
+    if hparams.in_meta:
+        out_string = f"worker_{str(worker.id)}_{out_string}"
+    return out_string
 
 def validate_classification_error(predicted, answer, threshold=0.6):
     predicted = predicted > threshold
