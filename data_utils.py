@@ -227,17 +227,20 @@ class HummingPairSet:
         selected_melody = self.contours[index]['humm']
         original_melody = self.contours[index]['orig']
         selected_song_id = self.contours[index]['meta']['track_id']
-        # downsampled_melody = downsample_contour_array(selected_melody)
         orig_ds_melody = downsample_contour_array(original_melody)
 
         aug_samples = []
         neg_samples = []
         
-        aug_samples = [mel_aug.make_augmented_melody(selected_melody,self.aug_keys) for i in range(self.num_aug_samples)]
         
         if self.set_type == 'valid':
-            return aug_samples, [selected_song_id] * len(aug_samples)
+            downsampled_melody = downsample_contour_array(selected_melody)
+            return downsampled_melody, selected_song_id
             # return [downsampled_melody] * len(aug_samples), [selected_song_id] * len(aug_samples)
+        
+        aug_samples = [mel_aug.make_augmented_melody(selected_melody,self.aug_keys) for i in range(self.num_aug_samples)]
+        
+
 
         # sampling negative melodies
         while len(neg_samples) < self.num_neg_samples:

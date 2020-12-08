@@ -27,19 +27,26 @@ from metalearner.api import scalars
 
 
 def prepare_humming_db_loaders(hparams):
-    with open(hparams.contour_path, "rb") as f:
+    with open(hparams.humming_path, "rb") as f:
         contour_pairs = pickle.load(f)
     train_set = HummingPairSet(contour_pairs, "train", num_aug_samples=hparams.num_pos_samples, num_neg_samples=hparams.num_neg_samples)
     valid_set = HummingPairSet(contour_pairs, "valid", num_aug_samples=0, num_neg_samples=0)
-    test_set = HummingPairSet(contour_pairs, "test", num_aug_samples=0, num_neg_samples=0)
+    # test_set = HummingPairSet(contour_pairs, "test", num_aug_samples=0, num_neg_samples=0)
     train_loader = DataLoader(train_set, hparams.batch_size, shuffle=True,num_workers=hparams.num_workers,
         collate_fn=ContourCollate(hparams.num_pos_samples, hparams.num_neg_samples, for_cnn=True), pin_memory=True)
     valid_loader = DataLoader(valid_set, hparams.valid_batch_size, shuffle=False,num_workers=hparams.num_workers,
         collate_fn=ContourCollate(0, 0, for_cnn=True), pin_memory=True, drop_last=False)
-    test_loader = DataLoader(test_set, hparams.valid_batch_size, shuffle=False,num_workers=hparams.num_workers,
+    # test_loader = DataLoader(test_set, hparams.valid_batch_size, shuffle=False,num_workers=hparams.num_workers,
+    #     collate_fn=ContourCollate(0, 0, for_cnn=True), pin_memory=True, drop_last=False)
+    with open(hparams.contour_path, 'rb') as f:
+        # pre_loaded_data = json_load(f)
+        pre_loaded_data = pickle.load(f)
+    entireset = WindowedContourSet(pre_loaded_data, set_type='entire', pre_load=True, num_aug_samples=0, num_neg_samples=0)
+    entire_loader = DataLoader(entireset, hparams.valid_batch_size, shuffle=False,num_workers=hparams.num_workers,
         collate_fn=ContourCollate(0, 0, for_cnn=True), pin_memory=True, drop_last=False)
 
-    return train_loader, valid_loader, test_loader
+
+    return train_loader, valid_loader, entire_loader
     
 def prepare_dataloaders(hparams, valid_only=False):
     # Get data, data loaders and collate function ready
@@ -190,7 +197,7 @@ def validate(model, val_loader, entire_loader, logger, epoch, iteration, criteri
 
     return valid_score["validation_score"]
 
-def train(output_directory, log_directory, checkpoint_path, warm_start, hparams):
+def train(output_directory, log_directory, checkpoint_path, hparams):
     """Training and validation logging results to tensorboard and stdout
 
     Params
@@ -205,7 +212,6 @@ def train(output_directory, log_directory, checkpoint_path, warm_start, hparams)
 
     torch.manual_seed(hparams.seed)
     torch.cuda.manual_seed(hparams.seed)
-
     model = load_model(hparams)
     learning_rate = hparams.learning_rate
     # if hparams.optimizer_type.lower() == 'adamp':
@@ -216,9 +222,11 @@ def train(output_directory, log_directory, checkpoint_path, warm_start, hparams)
                                 weight_decay=hparams.weight_decay)
 
     logger = prepare_directories_and_logger(output_directory, log_directory)
-    save_hparams(hparams, output_directory)
-    # train_loader, val_loader, entire_loader = prepare_dataloaders(hparams)
-    train_loader, val_loader, test_loader = prepare_humming_db_loaders(hparams)
+    
+    if hparams.train_on_humming:
+        train_loader, val_loader, entire_loader, = prepare_humming_db_loaders(hparams)
+    else:
+        train_loader, val_loader, entire_loader = prepare_dataloaders(hparams)
     # train_loader,val_loader, cmp_loader, _ = prepare_dataloaders(hparams)
 
     # Load checkpoint if one exists
@@ -256,6 +264,7 @@ def train(output_directory, log_directory, checkpoint_path, warm_start, hparams)
             loss.backward()
             grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), hparams.grad_clip_thresh)
             optimizer.step()
+            scheduler.step()
             duration = time.perf_counter() - start
             if hparams.in_meta:
                 results = {'training loss': -reduced_loss}
@@ -337,10 +346,19 @@ if __name__ == '__main__':
     args = parser.parse_args()
     if args.checkpoint_path:
         hparams = load_hparams(args.checkpoint_path)
+        dummy = HParams()
+        hparams.contour_path = dummy.contour_path
+        hparams.humming_path = dummy.humming_path
+        hparams.use_gradual_size = True
+        hparams.kernel_size = 5
+        hparams.embed_size = 256
+        hparams.in_meta = False
+        hparams.get_valid_by_aug = False
     else:
         # hparams = create_hparams(args.hparams)
         hparams = HParams()
     
+
     
     if args.in_metalearner:
         hparams.in_meta = True
@@ -366,4 +384,4 @@ if __name__ == '__main__':
     print("cuDNN Benchmark:", hparams.cudnn_benchmark)
 
     
-    train(output_directory, args.log_directory, args.checkpoint_path, args.warm_start, hparams)
+    train(output_directory, args.log_directory, args.checkpoint_path, hparams)
