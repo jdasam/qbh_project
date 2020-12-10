@@ -114,7 +114,7 @@ def inference(contour_path, output_directory, checkpoint_path, hparams):
     # total_embs, total_song_ids = get_contour_embeddings(model, entire_loader)
     total_embs, total_song_ids = get_contour_embs_from_overlapped_contours(model, dataset)
     torch.save({'embs':total_embs.cpu(), 'ids':total_song_ids, 'pos':[x['frame_pos'] for x in dataset]},
-               output_directory/"kor_bal_embedding.pt", )
+               output_directory/"qbh_embedding.pt", )
 
 
 if __name__ == '__main__':
@@ -123,7 +123,7 @@ if __name__ == '__main__':
                         default="/home/svcapp/userdata/flo_model/",
                         help='directory to save checkpoints')
     parser.add_argument('-c', '--checkpoint_path', type=str, 
-                    default='/home/svcapp/userdata/flo_model/contour_hidden128_lr0.0001_201022-192007/checkpoint_last',
+                    default='/home/svcapp/userdata/flo_model/worker_268365_contour_scheduled_hidden256_lr0.0001_201208-100526/checkpoint_last.pt',
                         required=False, help='checkpoint path')
     parser.add_argument('--hparams', type=str,
                         required=False, help='comma separated name=value pairs')
@@ -160,4 +160,4 @@ if __name__ == '__main__':
     
     output_directory = Path(args.output_directory) 
 
-    inference('/home/svcapp/userdata/flo_melody/contour_ballade_overlap.dat',output_directory, args.checkpoint_path, hparams)
+    inference('/home/svcapp/userdata/flo_melody/overlapped.dat',output_directory, args.checkpoint_path, hparams)

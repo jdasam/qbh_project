@@ -203,7 +203,7 @@ class HummingPairSet:
         self.contours = contour_pairs
         self.num_neg_samples = num_neg_samples
         self.num_aug_samples = num_aug_samples
-        self.aug_keys = ['tempo', 'key', 'std', 'masking', 'pitch_noise', 'fill']
+        self.aug_keys = ['tempo', 'key', 'std', 'pitch_noise']
         self.set_type = set_type
         self.down_f = 10
 

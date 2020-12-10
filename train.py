@@ -275,7 +275,7 @@ def train(output_directory, log_directory, checkpoint_path, hparams):
             else:
                 logger.log_training(
                     reduced_loss, grad_norm, learning_rate, duration, iteration)
-            if iteration % hparams.iters_per_checkpoint == 0: # and not iteration==0:
+            if iteration % hparams.iters_per_checkpoint == 1: # and not iteration==0:
                 # del loss, batch
                 # torch.cuda.empty_cache()
                 valid_score = validate(model, val_loader, entire_loader, logger, epoch, iteration, criterion, hparams)
@@ -344,6 +344,7 @@ if __name__ == '__main__':
     parser.add_argument('--get_valid_by_aug', type=lambda x: (str(x).lower() == 'true'))
     parser.add_argument('--use_res', type=lambda x: (str(x).lower() == 'true'))
     parser.add_argument('--use_gradual_size', type=lambda x: (str(x).lower() == 'true'))
+    parser.add_argument('--train_on_humming', type=lambda x: (str(x).lower() == 'true'))
 
 
     args = parser.parse_args()
@@ -352,11 +353,12 @@ if __name__ == '__main__':
         dummy = HParams()
         hparams.contour_path = dummy.contour_path
         hparams.humming_path = dummy.humming_path
-        hparams.use_gradual_size = True
-        hparams.kernel_size = 5
-        hparams.embed_size = 256
         hparams.in_meta = False
         hparams.get_valid_by_aug = False
+
+        # hparams.use_gradual_size = True
+        # hparams.kernel_size = 5
+        # hparams.embed_size = 256
     else:
         # hparams = create_hparams(args.hparams)
         hparams = HParams()
