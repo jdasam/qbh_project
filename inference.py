@@ -22,6 +22,40 @@ from hparams import HParams
 from loss_function import SiameseLoss
 from validation import get_contour_embeddings, cal_ndcg, cal_ndcg_single, get_contour_embs_from_overlapped_contours
 
+from validation import cal_ndcg_single
+from tqdm import tqdm
+
+
+def remove_duplicate(seq):
+    seen = set()
+    seen_add = seen.add
+    return [x for x in seq if not (x in seen or seen_add(x))]
+
+def cal_ndcg_of_loader(model, data_samples, total_embs, total_song_ids):
+    model.eval()
+    valid_score = 0
+    recommended_ids = []
+    for j, batch in enumerate(tqdm(data_samples)):
+        contours, track_ids, time_pos = batch
+        contours = torch.Tensor(contours).unsqueeze(0)
+        anchor = model(contours.cuda())
+        anchor_norm = anchor / anchor.norm(dim=1)[:, None]
+        similarity = torch.mm(anchor_norm, total_embs.transpose(0,1))
+        recommends = torch.topk(similarity, k=50, dim=-1)[1]
+        for i in range(recommends.shape[0]):
+            recommended_ids += recommends[i].cpu().numpy().tolist()
+        recommends = total_song_ids[recommends]
+        recommends.squeeze_()
+        recommends = remove_duplicate(recommends.tolist())[:10]
+        if track_ids in recommends:
+            score = 1 
+        else:
+            score = 0
+        valid_score += score
+
+    valid_score = valid_score/(j+1)
+    return valid_score
+
 
 def prepare_dataloaders(hparams, contour_path):
     # Get data, data loaders and collate function ready
@@ -113,6 +147,12 @@ def inference(contour_path, output_directory, checkpoint_path, hparams):
     model.eval()
     # total_embs, total_song_ids = get_contour_embeddings(model, entire_loader)
     total_embs, total_song_ids = get_contour_embs_from_overlapped_contours(model, dataset)
+
+    with open('/home/svcapp/userdata/flo_melody/humm_array.dat', 'rb') as f:
+        humm_array = pickle.load(f)
+
+    score = cal_ndcg_of_loader(model, humm_array, total_embs, torch.LongTensor(total_song_ids))
+    
     torch.save({'embs':total_embs.cpu(), 'ids':total_song_ids, 'pos':[x['frame_pos'] for x in dataset]},
                output_directory/"qbh_embedding.pt", )
 

@@ -14,7 +14,6 @@ import json
 from sampling_utils import downsample_contour, downsample_contour_array
 from segmentation_utils import find_melody_seg_fast
 from melody_utils import MelodyLoader
-import humming_data_utils as humm_utils
         
 
 class ContourSet:
@@ -124,7 +123,7 @@ class ContourSet:
 
 
 class WindowedContourSet:
-    def __init__(self, path, song_ids=[], num_aug_samples=4, num_neg_samples=4, quantized=True, pre_load=False, set_type='entire', min_aug=1):
+    def __init__(self, path, aug_weights, song_ids=[], num_aug_samples=4, num_neg_samples=4, quantized=True, pre_load=False, set_type='entire', min_aug=1):
         if not pre_load:
             self.path = Path(path)
             self.melody_txt_list = [song_id_to_pitch_txt_path(self.path, x) for x in song_ids]
@@ -148,6 +147,9 @@ class WindowedContourSet:
             self.contours = self.contours[int(len(self)*0.8):int(len(self)*0.9)]
         elif set_type == 'test':
             self.contours = self.contours[int(len(self)*0.9):]
+        
+        if aug_weights != []:
+            self.melody_augmentor = mel_aug.MelodyAugmenter(aug_weights)
 
     def load_melody(self):
         contours = [self.melody_loader.get_overlapped_contours(txt) for txt in tqdm(self.melody_txt_list)]
@@ -180,9 +182,9 @@ class WindowedContourSet:
         neg_samples = []
         
         if self.min_aug < len(self.aug_keys):
-            aug_samples = [mel_aug.make_augmented_melody(selected_melody, random.sample(self.aug_keys, random.randint(self.min_aug,len(self.aug_keys)))) for i in range(self.num_aug_samples)]
+            aug_samples = [self.melody_augmentor(selected_melody, random.sample(self.aug_keys, random.randint(self.min_aug,len(self.aug_keys)))) for i in range(self.num_aug_samples)]
         else:
-            aug_samples = [mel_aug.make_augmented_melody(selected_melody,self.aug_keys) for i in range(self.num_aug_samples)]
+            aug_samples = [self.melody_augmentor(selected_melody, self.aug_keys) for i in range(self.num_aug_samples)]
         
         if self.set_type == 'valid':
             return aug_samples, [selected_song_id] * len(aug_samples)
@@ -197,7 +199,7 @@ class WindowedContourSet:
 
 
 class HummingPairSet:
-    def __init__(self, contour_pairs, set_type, num_aug_samples=4, num_neg_samples=4 ):
+    def __init__(self, contour_pairs, aug_weights, set_type, num_aug_samples=4, num_neg_samples=4 ):
         # with open(path, "rb") as f:
         #     self.contour_pairs = pickle.load(f)
         self.contours = contour_pairs
@@ -207,7 +209,9 @@ class HummingPairSet:
         self.set_type = set_type
         self.down_f = 10
 
-
+        if aug_weights != []:
+            self.melody_augmentor = mel_aug.MelodyAugmenter(aug_weights)
+            
         assert len(self.contours) == 1400
             
         if set_type =='train':
@@ -238,10 +242,8 @@ class HummingPairSet:
             return downsampled_melody, selected_song_id
             # return [downsampled_melody] * len(aug_samples), [selected_song_id] * len(aug_samples)
         
-        aug_samples = [mel_aug.make_augmented_melody(selected_melody,self.aug_keys) for i in range(self.num_aug_samples)]
+        aug_samples = [self.melody_augmentor(selected_melody,self.aug_keys) for i in range(self.num_aug_samples)]
         
-
-
         # sampling negative melodies
         while len(neg_samples) < self.num_neg_samples:
             neg_idx = random.randint(0, len(self)-1)
@@ -339,14 +341,13 @@ class ContourCollate:
             return mels[:, 0, :, :], mels[:, 1, :, :], mels[:, 2, :, :]
 
 
-class HummingData:
-    def __init__(self, path):
-        selected_100, selected_900 = humm_utils.load_meta_from_excel()
-        self.humming_db = humm_utils.HummingDB('/home/svcapp/userdata/humming_db', '/home/svcapp/userdata/flo_data_backup/', selected_100, selected_900)
-        self.contour_pitch = [x for x in self.humming_db]
+# class HummingData:
+#     def __init__(self, path):
+#         selected_100, selected_900 = humm_utils.load_meta_from_excel()
+#         self.humming_db = humm_utils.HummingDB('/home/svcapp/userdata/humming_db', '/home/svcapp/userdata/flo_data_backup/', selected_100, selected_900)
+#         self.contour_pitch = [x for x in self.humming_db]
         
-        
-        
+    
 
 def quantizing_hz(contour, to_midi=False, quantization=True):
     if quantization is False and to_midi is False:

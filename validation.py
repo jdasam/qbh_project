@@ -1,6 +1,8 @@
+from sampling_utils import downsample_contour_array
 import torch
 from torch.utils.data import DataLoader
 from math import log
+from sampling_utils import downsample_contour_array
 
 def get_contour_embs_from_overlapped_contours(model, dataset, batch_size=128):
     total_embs = torch.zeros([len(dataset), model.embed_size]).to('cuda')
@@ -11,7 +13,7 @@ def get_contour_embs_from_overlapped_contours(model, dataset, batch_size=128):
     
     with torch.no_grad():
         for i in range(0, len(dataset), batch_size):
-            batch = torch.Tensor([x['contour'] for x in dataset[i:i+batch_size]]).cuda()
+            batch = torch.Tensor([downsample_contour_array(x['contour']) for x in dataset[i:i+batch_size]]).cuda()
             song_ids = [x['song_id'] for x in dataset[i:i+batch_size]]
             # song_ids = torch.Tensor([x['song_id'] for x in dataset[i:i+batch_size]])
             embeddings = model(batch)

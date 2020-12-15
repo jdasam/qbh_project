@@ -78,32 +78,38 @@ class CnnEncoder(nn.Module):
 
         self.num_pos_samples = hparams.num_pos_samples
         self.num_neg_samples = hparams.num_neg_samples
-        
-        if hparams.use_attention:
-            self.use_attention = True
-            if hparams.use_context_attention:
-                self.final_attention = ContextAttention(parameters[-1]['output_channel'], num_head=hparams.num_head)
-            else:
-                self.final_attention = SimpleAttention(parameters[-1]['output_channel'])
-        else:
-            self.use_attention = False
 
-        if hparams.use_rnn:
-            self.use_rnn = True
+        if hparams.summ_type == "context_attention":
+            self.final_attention = ContextAttention(parameters[-1]['output_channel'], num_head=hparams.num_head)
+        elif hparams.summ_type == "simple_attention":
+            self.final_attention = SimpleAttention(parameters[-1]['output_channel'])
+        elif hparams.summ_type == "rnn":
             self.final_rnn = nn.GRU(input_size=parameters[-1]['output_channel'], hidden_size=parameters[-1]['output_channel'], num_layers=1, batch_first=True)
-        else:
-            self.use_rnn = False
+        self.summ_type = hparams.summ_type
+        # if hparams.use_attention:
+        #     self.use_attention = True
+        #     if hparams.use_context_attention:
+        #         self.final_attention = ContextAttention(parameters[-1]['output_channel'], num_head=hparams.num_head)
+        #     else:
+        #         self.final_attention = SimpleAttention(parameters[-1]['output_channel'])
+        # else:
+        #     self.use_attention = False
 
+        # if hparams.use_rnn:
+        #     self.use_rnn = True
+        #     self.final_rnn = nn.GRU(input_size=parameters[-1]['output_channel'], hidden_size=parameters[-1]['output_channel'], num_layers=1, batch_first=True)
+        # else:
+        #     self.use_rnn = False
         
 
     def forward(self, batch):
         if self.use_pre_encoder:
             batch = self.pre_encoder(batch)
         out = self.encoder(batch.permute(0,2,1))
-        if self.use_attention:
+        if self.summ_type == "context_attention" or self.summ_type == "simple_attention":
             out = self.final_attention(out.permute(0,2,1))
             return self.fc(out)
-        elif self.use_rnn:
+        elif self.summ_type == "rnn":
             _, out = self.final_rnn(out.permute(0,2,1))
             return self.fc(out[0])
         else:

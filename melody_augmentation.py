@@ -18,11 +18,10 @@ def with_different_key(x):
     aug_x[is_vocal,0] += (random.random()-0.5) * 3
     return aug_x
 
-def with_different_std(x, weight=1):
+def with_different_std(x, aug_std):
     aug_x = np.copy(x)
     aug_x[aug_x[:,1]==0,0] = np.nan
     mean = np.nanmean(aug_x[:,0])
-    aug_std = (1 + (random.random() - 0.5) *weight)
     is_vocal = x[:,1]==1
     aug_x[is_vocal, 0] -= mean
     aug_x[is_vocal, 0] *= aug_std
@@ -114,7 +113,7 @@ def get_zero_slice_from_contour(contour, threshold=5):
         zeros_slice = [x for x in zeros_slice if x[1]-x[0] > threshold]
     return zeros_slice
 
-def fill_non_voice_random(melody, max_ratio=1, pause_threshold=200):
+def fill_non_voice_random(melody, max_ratio=1, pause_threshold=20):
     slice_pos = get_zero_slice_from_contour(melody[:,1])
     long_pause_idx = [i for i in range(len(slice_pos)) if slice_pos[i][1]-slice_pos[i][0] > pause_threshold]
     for i in reversed(long_pause_idx):
@@ -137,50 +136,60 @@ def downsample_with_different_tempo(melody, global_tempo, slice_ids, rand_weight
     return np.concatenate(downsampled)
 
 
-def make_augmented_melody(melody_array, aug_keys):
+class MelodyAugmenter:
+    def __init__(self, weight_params):
+        for key in weight_params.keys():
+            setattr(self, key, weight_params[key])
+    
+    def __call__(self, melody_array, aug_keys):
+        return make_augmented_melody(melody_array, aug_keys, self.mask_w, self.tempo_w, self.tempo_slice, self.drop_w, self.std_w, self.pitch_noise_w, self.fill_w)
+
+def make_augmented_melody(melody_array, aug_keys, mask_w=1, tempo_w=1, tempo_slice=7, drop_w=0.3, std_w=1, pitch_noise_w=0.1, fill_w=1):
     # 1. masking in random ratio
-    if 'masking' in aug_keys:
-        masking_ratio = random.random() / 2
+    if 'masking' in aug_keys and mask_w != 0:
+        masking_ratio = random.random() / 2 * mask_w
         aug_melody = with_masking(melody_array, ratio=masking_ratio)
         while np.sum(aug_melody[:,1]) == 0:
             aug_melody = with_masking(melody_array, ratio=masking_ratio)
     else:
         aug_melody = np.copy(melody_array)
     
-    if 'tempo' in aug_keys:
-        global_tempo = random.random() + 0.5
-        slice_ids = slice_in_random_position(aug_melody.shape[0], 7)
+    if 'tempo' in aug_keys and tempo_w!=0:
+        global_tempo = 1 + (random.random() - 0.5) * tempo_w
+        slice_ids = slice_in_random_position(aug_melody.shape[0], tempo_slice)
         aug_melody = downsample_with_different_tempo(aug_melody, global_tempo, slice_ids)
         while np.sum(aug_melody[:,1]) == 0:
             if 'masking' in aug_keys:
-                masking_ratio = random.random() / 2
+                masking_ratio = random.random() / 2 * mask_w
                 aug_melody = with_masking(melody_array, ratio=masking_ratio)
                 while np.sum(aug_melody[:,1]) == 0:
                     aug_melody = with_masking(melody_array, ratio=masking_ratio)
             else:
                 aug_melody = np.copy(melody_array)
-            global_tempo = random.random() + 0.5
-            slice_ids = slice_in_random_position(aug_melody.shape[0], 7)
+            global_tempo = 1 + (random.random() - 0.5) * tempo_w
+            slice_ids = slice_in_random_position(aug_melody.shape[0], tempo_slice)
             aug_melody = downsample_with_different_tempo(aug_melody, global_tempo, slice_ids)
     else:
         aug_melody = downsample_contour_array(aug_melody)
         
-    if 'drop_out' in aug_keys:
-        aug_melody = with_dropout(aug_melody)
+    if 'drop_out' in aug_keys and drop_w!=0:
+        drop_ratio = random.random() / 2 * drop_w
+        aug_melody = with_dropout(aug_melody, drop_ratio)
 
     if 'key' in aug_keys:
         aug_melody = with_different_key(aug_melody)
     
-    if 'std' in aug_keys:
-        aug_melody = with_different_std(aug_melody, weight=0.3)
+    if 'std' in aug_keys and std_w!=0:
+        aug_std = (1 + (random.random() - 0.5) * std_w)
+        aug_melody = with_different_std(aug_melody, aug_std)
 
-    if 'pitch_noise' in aug_keys:
+    if 'pitch_noise' in aug_keys and pitch_noise_w!=0:
         # 4. add different pitch noise by slice
-        slice_ids = slice_in_random_position(aug_melody.shape[0], 5)
-        aug_melody = add_pitch_noise_by_slice(aug_melody, slice_ids)
+        slice_ids = slice_in_random_position(aug_melody.shape[0], tempo_slice)
+        aug_melody = add_pitch_noise_by_slice(aug_melody, slice_ids, pitch_noise_w)
 
-    if 'fill' in aug_keys:
+    if 'fill' in aug_keys and fill_w!=0:
         # randomly fill non voice part 
-        aug_melody = fill_non_voice_random(aug_melody)
+        aug_melody = fill_non_voice_random(aug_melody, fill_w)
     aug_melody[aug_melody[:,1]==0, 0] = 0
     return aug_melody

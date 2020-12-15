@@ -21,8 +21,9 @@ class HParams:
         self.pitch_path = '/home/svcapp/userdata/flo_melody/melody_subgenre.dat'
         # self.contour_path = '/home/svcapp/userdata/flo_melody/contour_subgenre_norm.json'
         self.contour_path = '/home/svcapp/userdata/flo_melody/overlapped.dat'
-        self.humming_path = 'humming_db_contour_pairs.dat'
+        self.humming_path = '/home/svcapp/userdata/flo_melody/humming_db_contour_pairs.dat'
         self.train_on_humming = False
+        self.combined_training = True
 
         ################################
         # Model Parameters             #
@@ -34,12 +35,21 @@ class HParams:
         self.kernel_size = 3
         self.embed_size = 128
         self.num_head = 8
-        self.use_attention = False
-        self.use_context_attention = False
-        self.use_rnn = False
+        self.summ_type = "rnn"
         self.use_pre_encoder = False
         self.use_res = False
         self.use_gradual_size = False
+
+        ################################
+        # Augmentation Hyperparameters #
+        ################################
+        self.mask_w=1
+        self.tempo_w=1
+        self.tempo_slice=7
+        self.drop_w=0.3
+        self.std_w=1 
+        self.pitch_noise_w=0.1
+        self.fill_w=1
 
         ################################
         # Optimization Hyperparameters #
@@ -49,6 +59,7 @@ class HParams:
         self.learning_rate=1e-4
         self.learning_rate_decay_steps = 30000
         self.learning_rate_decay_rate = 0.99
+        self.iters_per_humm_train = 50
         self.weight_decay=1e-6
         self.momentum = 0.9
         self.center_loss_weight = 0.1

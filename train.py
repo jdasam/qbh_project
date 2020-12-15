@@ -29,8 +29,9 @@ from metalearner.api import scalars
 def prepare_humming_db_loaders(hparams):
     with open(hparams.humming_path, "rb") as f:
         contour_pairs = pickle.load(f)
-    train_set = HummingPairSet(contour_pairs, "train", num_aug_samples=hparams.num_pos_samples, num_neg_samples=hparams.num_neg_samples)
-    valid_set = HummingPairSet(contour_pairs, "valid", num_aug_samples=0, num_neg_samples=0)
+    aug_weights = make_aug_param_dictionary(hparams)
+    train_set = HummingPairSet(contour_pairs, aug_weights, "train", num_aug_samples=hparams.num_pos_samples, num_neg_samples=hparams.num_neg_samples)
+    valid_set = HummingPairSet(contour_pairs, [], "valid", num_aug_samples=0, num_neg_samples=0)
     # test_set = HummingPairSet(contour_pairs, "test", num_aug_samples=0, num_neg_samples=0)
     train_loader = DataLoader(train_set, hparams.batch_size, shuffle=True,num_workers=hparams.num_workers,
         collate_fn=ContourCollate(hparams.num_pos_samples, hparams.num_neg_samples, for_cnn=True), pin_memory=True)
@@ -41,7 +42,7 @@ def prepare_humming_db_loaders(hparams):
     with open(hparams.contour_path, 'rb') as f:
         # pre_loaded_data = json_load(f)
         pre_loaded_data = pickle.load(f)
-    entireset = WindowedContourSet(pre_loaded_data, set_type='entire', pre_load=True, num_aug_samples=0, num_neg_samples=0)
+    entireset = WindowedContourSet(pre_loaded_data, [], set_type='entire', pre_load=True, num_aug_samples=0, num_neg_samples=0)
     entire_loader = DataLoader(entireset, hparams.valid_batch_size, shuffle=False,num_workers=hparams.num_workers,
         collate_fn=ContourCollate(0, 0, for_cnn=True), pin_memory=True, drop_last=False)
 
@@ -57,9 +58,10 @@ def prepare_dataloaders(hparams, valid_only=False):
         min_aug=1
     else:
         min_aug=10
-    trainset = WindowedContourSet(pre_loaded_data, set_type='train', pre_load=True, num_aug_samples=hparams.num_pos_samples, num_neg_samples=hparams.num_neg_samples, min_aug=min_aug)
-    entireset = WindowedContourSet(pre_loaded_data, set_type='entire', pre_load=True, num_aug_samples=0, num_neg_samples=0)
-    validset =  WindowedContourSet(pre_loaded_data, set_type='valid', pre_load=True, num_aug_samples=4, num_neg_samples=0, min_aug=10)
+    aug_weights = make_aug_param_dictionary(hparams)
+    trainset = WindowedContourSet(pre_loaded_data, aug_weights, set_type='train', pre_load=True, num_aug_samples=hparams.num_pos_samples, num_neg_samples=hparams.num_neg_samples, min_aug=min_aug)
+    entireset = WindowedContourSet(pre_loaded_data, [], set_type='entire', pre_load=True, num_aug_samples=0, num_neg_samples=0)
+    validset =  WindowedContourSet(pre_loaded_data, aug_weights, set_type='valid', pre_load=True, num_aug_samples=4, num_neg_samples=0, min_aug=10)
 
     train_loader = DataLoader(trainset, hparams.batch_size, shuffle=True,num_workers=hparams.num_workers,
         collate_fn=ContourCollate(hparams.num_pos_samples, hparams.num_neg_samples, for_cnn=True), pin_memory=True)
@@ -70,6 +72,10 @@ def prepare_dataloaders(hparams, valid_only=False):
 
     return train_loader, valid_loader, entire_loader #, comparison_loader, collate_fn
     # return train_loader, #valid_loader, list_collate_fn
+
+def make_aug_param_dictionary(hparams):
+    aug_weight_keys = ['mask_w', 'tempo_w', 'tempo_slice', 'drop_w', 'std_w', 'pitch_noise_w', 'fill_w']
+    return {key: getattr(hparams, key) for key in aug_weight_keys}
 
 def prepare_directories_and_logger(output_directory, log_directory,):
     print(output_directory, log_directory)
@@ -83,16 +89,18 @@ def load_model(hparams):
         model = torch.nn.DataParallel(model)
     return model
 
-def load_checkpoint(checkpoint_path, model, optimizer):
+def load_checkpoint(checkpoint_path, model, optimizer, train_on_humming=False):
     assert os.path.isfile(checkpoint_path)
     print("Loading checkpoint '{}'".format(checkpoint_path))
     checkpoint_dict = torch.load(checkpoint_path, map_location='cpu')
     model.load_state_dict(checkpoint_dict['state_dict'])
-    optimizer.load_state_dict(checkpoint_dict['optimizer'])
-    learning_rate = checkpoint_dict['learning_rate']
     iteration = checkpoint_dict['iteration']
     print("Loaded checkpoint '{}' from iteration {}" .format(
         checkpoint_path, iteration))
+    if train_on_humming:
+        return model, optimizer, 0, 0
+    optimizer.load_state_dict(checkpoint_dict['optimizer'])
+    learning_rate = checkpoint_dict['learning_rate']
     return model, optimizer, learning_rate, iteration
 
 def save_checkpoint(model, optimizer, learning_rate, iteration, filepath):
@@ -226,11 +234,13 @@ def train(output_directory, log_directory, checkpoint_path, hparams):
 
     logger = prepare_directories_and_logger(output_directory, log_directory)
     
-    if hparams.train_on_humming:
+    if hparams.combined_training:
+        train_loader, _, entire_loader = prepare_dataloaders(hparams)
+        humm_train_loader, val_loader, _, = prepare_humming_db_loaders(hparams)
+    elif hparams.train_on_humming:
         train_loader, val_loader, entire_loader, = prepare_humming_db_loaders(hparams)
     else:
         train_loader, val_loader, entire_loader = prepare_dataloaders(hparams)
-    # train_loader,val_loader, cmp_loader, _ = prepare_dataloaders(hparams)
 
     # Load checkpoint if one exists
     iteration = 0
@@ -241,7 +251,7 @@ def train(output_directory, log_directory, checkpoint_path, hparams):
         #         checkpoint_path, model, hparams.ignore_layers)
         # else:
         model, optimizer, _learning_rate, iteration = load_checkpoint(
-            checkpoint_path, model, optimizer)
+            checkpoint_path, model, optimizer, args.train_on_humming)
         if hparams.use_saved_learning_rate:
             learning_rate = _learning_rate
         iteration += 1  # next iteration is iteration + 1
@@ -275,6 +285,17 @@ def train(output_directory, log_directory, checkpoint_path, hparams):
             else:
                 logger.log_training(
                     reduced_loss, grad_norm, learning_rate, duration, iteration)
+            if hparams.combined_training and iteration % hparams.iters_per_humm_train == 0:
+                model.zero_grad()
+                batch = next(iter(humm_train_loader))
+                batch = batch.cuda()
+                anchor, pos, neg = model.siamese(batch)
+                loss = criterion(anchor, pos, neg)
+                loss.backward()
+                grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), hparams.grad_clip_thresh)
+                optimizer.step()
+
+
             if iteration % hparams.iters_per_checkpoint == 1: # and not iteration==0:
                 # del loss, batch
                 # torch.cuda.empty_cache()
@@ -324,7 +345,8 @@ if __name__ == '__main__':
     parser.add_argument('--valid_batch_size', type=int, required=False)
 
     parser.add_argument('--epochs', type=int, required=False)    
-    parser.add_argument('--iters_per_checkpoint', type=int, required=False)        
+    parser.add_argument('--iters_per_checkpoint', type=int, required=False)
+
     parser.add_argument('--learning_rate', type=float)
     parser.add_argument('--weight_decay', type=float)
     parser.add_argument('--momentum', type=float)
@@ -336,15 +358,22 @@ if __name__ == '__main__':
     parser.add_argument('--num_layers', type=int)
     parser.add_argument('--loss_margin', type=float)
 
-    parser.add_argument('--use_attention', type=lambda x: (str(x).lower() == 'true'))
-    parser.add_argument('--use_context_attention', type=lambda x: (str(x).lower() == 'true'))
+    parser.add_argument('--summ_type', type=str)
     parser.add_argument('--use_pre_encoder', type=lambda x: (str(x).lower() == 'true'))
-    parser.add_argument('--use_rnn', type=lambda x: (str(x).lower() == 'true'))
     parser.add_argument('--is_scheduled', type=lambda x: (str(x).lower() == 'true'))
     parser.add_argument('--get_valid_by_aug', type=lambda x: (str(x).lower() == 'true'))
     parser.add_argument('--use_res', type=lambda x: (str(x).lower() == 'true'))
     parser.add_argument('--use_gradual_size', type=lambda x: (str(x).lower() == 'true'))
     parser.add_argument('--train_on_humming', type=lambda x: (str(x).lower() == 'true'))
+    parser.add_argument('--iters_per_humm_train', type=int)
+
+    parser.add_argument('--mask_w', type=float)
+    parser.add_argument('--tempo_w', type=float)
+    parser.add_argument('--tempo_slice', type=int)
+    parser.add_argument('--drop_w', type=float)
+    parser.add_argument('--std_w', type=float)
+    parser.add_argument('--pitch_noise_w', type=float)
+    parser.add_argument('--fill_w', type=float)
 
 
     args = parser.parse_args()
