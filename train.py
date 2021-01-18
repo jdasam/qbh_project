@@ -2,6 +2,7 @@ import os
 import time
 import argparse
 import _pickle as pickle
+import copy
 
 from math import inf as mathinf
 from simplejson import dump as json_dump, load as json_load
@@ -285,21 +286,35 @@ def train(output_directory, log_directory, checkpoint_path, hparams):
             else:
                 logger.log_training(
                     reduced_loss, grad_norm, learning_rate, duration, iteration)
-            if hparams.combined_training and iteration % hparams.iters_per_humm_train == 0:
-                model.zero_grad()
-                batch = next(iter(humm_train_loader))
-                batch = batch.cuda()
-                anchor, pos, neg = model.siamese(batch)
-                loss = criterion(anchor, pos, neg)
-                loss.backward()
-                grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), hparams.grad_clip_thresh)
-                optimizer.step()
+            # if hparams.combined_training and iteration % hparams.iters_per_humm_train == 0:
+            #     model.zero_grad()
+            #     batch = next(iter(humm_train_loader))
+            #     batch = batch.cuda()
+            #     anchor, pos, neg = model.siamese(batch)
+            #     loss = criterion(anchor, pos, neg)
+            #     loss.backward()
+            #     grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), hparams.grad_clip_thresh)
+            #     optimizer.step()
 
 
             if iteration % hparams.iters_per_checkpoint == 1: # and not iteration==0:
-                # del loss, batch
-                # torch.cuda.empty_cache()
-                valid_score = validate(model, val_loader, entire_loader, logger, epoch, iteration, criterion, hparams)
+                if hparams.combined_training:
+                    fine_tune_model = copy.deepcopy(model)
+                    fine_optimizer = torch.optim.Adam(fine_tune_model.parameters(), lr=learning_rate,
+                                weight_decay=hparams.weight_decay)
+                    for epoch in range(hparams.epoch_for_humm_train):
+                        for _, batch in enumerate(humm_train_loader):
+                            fine_tune_model.zero_grad()
+                            batch = next(iter(humm_train_loader))
+                            batch = batch.cuda()
+                            anchor, pos, neg = fine_tune_model.siamese(batch)
+                            fine_loss = criterion(anchor, pos, neg)
+                            fine_loss.backward()
+                            grad_norm = torch.nn.utils.clip_grad_norm_(fine_tune_model.parameters(), hparams.grad_clip_thresh)
+                            fine_optimizer.step()
+                        valid_score = validate(fine_tune_model, val_loader, entire_loader, logger, epoch, iteration, criterion, hparams)
+                else:
+                    valid_score = validate(model, val_loader, entire_loader, logger, epoch, iteration, criterion, hparams)
                 is_best = valid_score > best_valid_score
                 best_valid_score = max(valid_score, best_valid_score)
                 if is_best:
@@ -368,6 +383,8 @@ if __name__ == '__main__':
     parser.add_argument('--use_gradual_size', type=lambda x: (str(x).lower() == 'true'))
     parser.add_argument('--train_on_humming', type=lambda x: (str(x).lower() == 'true'))
     parser.add_argument('--iters_per_humm_train', type=int)
+    parser.add_argument('--combined_training', type=lambda x: (str(x).lower() == 'true'))
+    parser.add_argument('--epoch_for_humm_train', type=int)
 
     parser.add_argument('--mask_w', type=float)
     parser.add_argument('--tempo_w', type=float)

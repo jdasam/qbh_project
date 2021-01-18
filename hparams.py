@@ -60,6 +60,7 @@ class HParams:
         self.learning_rate_decay_steps = 30000
         self.learning_rate_decay_rate = 0.99
         self.iters_per_humm_train = 50
+        self.epoch_for_humm_train = 10
         self.weight_decay=1e-6
         self.momentum = 0.9
         self.center_loss_weight = 0.1
