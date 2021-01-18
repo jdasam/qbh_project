@@ -312,7 +312,7 @@ def train(output_directory, log_directory, checkpoint_path, hparams):
                             fine_loss.backward()
                             grad_norm = torch.nn.utils.clip_grad_norm_(fine_tune_model.parameters(), hparams.grad_clip_thresh)
                             fine_optimizer.step()
-                        valid_score = validate(fine_tune_model, val_loader, entire_loader, logger, epoch, iteration, criterion, hparams)
+                    valid_score = validate(fine_tune_model, val_loader, entire_loader, logger, epoch, iteration, criterion, hparams)
                 else:
                     valid_score = validate(model, val_loader, entire_loader, logger, epoch, iteration, criterion, hparams)
                 is_best = valid_score > best_valid_score
