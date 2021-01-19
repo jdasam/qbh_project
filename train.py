@@ -303,10 +303,10 @@ def train(output_directory, log_directory, checkpoint_path, hparams):
                     fine_tune_model = copy.deepcopy(model)
                     fine_optimizer = torch.optim.Adam(fine_tune_model.parameters(), lr=fine_learning_rate,
                                 weight_decay=hparams.weight_decay)
+                    fine_tune_model.train()
                     for epoch in range(hparams.epoch_for_humm_train):
-                        for _, batch in enumerate(humm_train_loader):
+                        for batch in humm_train_loader:
                             fine_tune_model.zero_grad()
-                            batch = next(iter(humm_train_loader))
                             batch = batch.cuda()
                             anchor, pos, neg = fine_tune_model.siamese(batch)
                             fine_loss = criterion(anchor, pos, neg)
