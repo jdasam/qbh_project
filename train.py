@@ -299,8 +299,9 @@ def train(output_directory, log_directory, checkpoint_path, hparams):
 
             if iteration % hparams.iters_per_checkpoint == 1: # and not iteration==0:
                 if hparams.combined_training:
+                    fine_learning_rate = hparams.learning_rate
                     fine_tune_model = copy.deepcopy(model)
-                    fine_optimizer = torch.optim.Adam(fine_tune_model.parameters(), lr=learning_rate,
+                    fine_optimizer = torch.optim.Adam(fine_tune_model.parameters(), lr=fine_learning_rate,
                                 weight_decay=hparams.weight_decay)
                     for epoch in range(hparams.epoch_for_humm_train):
                         for _, batch in enumerate(humm_train_loader):
@@ -310,11 +311,12 @@ def train(output_directory, log_directory, checkpoint_path, hparams):
                             anchor, pos, neg = fine_tune_model.siamese(batch)
                             fine_loss = criterion(anchor, pos, neg)
                             fine_loss.backward()
-                            grad_norm = torch.nn.utils.clip_grad_norm_(fine_tune_model.parameters(), hparams.grad_clip_thresh)
+                            torch.nn.utils.clip_grad_norm_(fine_tune_model.parameters(), hparams.grad_clip_thresh)
                             fine_optimizer.step()
                     valid_score = validate(fine_tune_model, val_loader, entire_loader, logger, epoch, iteration, criterion, hparams)
                 else:
                     valid_score = validate(model, val_loader, entire_loader, logger, epoch, iteration, criterion, hparams)
+                    fine_tune_model = model
                 is_best = valid_score > best_valid_score
                 best_valid_score = max(valid_score, best_valid_score)
                 if is_best:
@@ -322,11 +324,11 @@ def train(output_directory, log_directory, checkpoint_path, hparams):
                     # checkpoint_path = os.path.join(output_directory, "checkpoint_best")
                     # checkpoint_path = os.path.join(
                     #     output_directory, "checkpoint_{}".format(iteration))
-                    save_checkpoint(model, optimizer, learning_rate, iteration,
+                    save_checkpoint(fine_tune_model, optimizer, learning_rate, iteration,
                                     checkpoint_path)
                 else:
                     checkpoint_path = output_directory / 'checkpoint_last.pt'
-                    save_checkpoint(model, optimizer, learning_rate, iteration,
+                    save_checkpoint(fine_tune_model, optimizer, learning_rate, iteration,
                                     checkpoint_path)
                 # torch.cuda.empty_cache()
 
@@ -407,6 +409,13 @@ if __name__ == '__main__':
         # hparams.use_gradual_size = True
         # hparams.kernel_size = 5
         # hparams.embed_size = 256
+        # hparams.summ_type = 'rnn'
+        # hparams.combined_training=False
+        # hparams.train_on_humming=True
+        dummy_hparams = HParams()
+        for key in vars(dummy_hparams):
+            if not hasattr(hparams, key):
+                setattr(hparams, key, getattr(dummy_hparams, key))
     else:
         # hparams = create_hparams(args.hparams)
         hparams = HParams()

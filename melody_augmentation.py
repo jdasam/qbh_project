@@ -87,6 +87,7 @@ def add_pitch_noise_by_slice(melody, slice_idx, max_noise=0.1):
     for i in range(len(slice_idx)-1):
         noise = random.random() * max_noise
         dummy[slice_idx[i]:slice_idx[i+1], 0] = melody[slice_idx[i]:slice_idx[i+1], 0] + noise
+    dummy[dummy[:,1]==0, 0] = 0    
     return dummy
 
 def fill_non_voice_entire(melody):
