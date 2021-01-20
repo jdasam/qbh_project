@@ -172,13 +172,13 @@ def cal_ndcg_of_loader(model, val_loader, total_embs, total_song_ids):
     valid_score = valid_score/(j+1)
     return valid_score
 
-def validate(model, val_loader, entire_loader, logger, epoch, iteration, criterion, hparams):
+def validate(model, val_loader, entire_loader, logger, epoch, iteration, hparams, record_key="validation_score"):
     """Handles all the validation scoring and printing"""
     model.eval()
     valid_score = {}
     with torch.no_grad():
         total_embs, total_song_ids = get_contour_embeddings(model, entire_loader)
-        valid_score["validation_score"] = cal_ndcg_of_loader(model, val_loader, total_embs, total_song_ids)
+        valid_score[record_key] = cal_ndcg_of_loader(model, val_loader, total_embs, total_song_ids)
         # for j, batch in enumerate(tqdm(val_loader)):
         if hparams.get_valid_by_aug:
             aug_keys = [x for x in val_loader.dataset.aug_keys]
@@ -189,9 +189,9 @@ def validate(model, val_loader, entire_loader, logger, epoch, iteration, criteri
             val_loader.dataset.aug_keys = aug_keys
     model.train()
     if len(valid_score) == 1:
-        print("Valdiation nDCG {}: {:5f} ".format(iteration, valid_score["validation_score"]))
+        print("Valdiation nDCG {}: {:5f} ".format(iteration, valid_score[record_key]))
     else:
-        score_string = "Valdiation nDCG {}: {:5f} ".format(iteration, valid_score["validation_score"])
+        score_string = "Valdiation nDCG {}: {:5f} ".format(iteration, valid_score[record_key])
         for key in valid_score.keys():
             score_string += "/ {}: {:5f}".format(key, valid_score[key])
         print(score_string)
@@ -207,7 +207,7 @@ def validate(model, val_loader, entire_loader, logger, epoch, iteration, criteri
     else:
         logger.log_validation(valid_score, model, iteration)
 
-    return valid_score["validation_score"]
+    return valid_score[record_key]
 
 def train(output_directory, log_directory, checkpoint_path, hparams):
     """Training and validation logging results to tensorboard and stdout
@@ -236,8 +236,8 @@ def train(output_directory, log_directory, checkpoint_path, hparams):
     logger = prepare_directories_and_logger(output_directory, log_directory)
     
     if hparams.combined_training:
-        train_loader, _, entire_loader = prepare_dataloaders(hparams)
-        humm_train_loader, val_loader, _, = prepare_humming_db_loaders(hparams)
+        train_loader, val_loader, _ = prepare_dataloaders(hparams)
+        humm_train_loader, humm_val_loader, entire_loader, = prepare_humming_db_loaders(hparams)
     elif hparams.train_on_humming:
         train_loader, val_loader, entire_loader, = prepare_humming_db_loaders(hparams)
     else:
@@ -313,9 +313,10 @@ def train(output_directory, log_directory, checkpoint_path, hparams):
                             fine_loss.backward()
                             torch.nn.utils.clip_grad_norm_(fine_tune_model.parameters(), hparams.grad_clip_thresh)
                             fine_optimizer.step()
-                    valid_score = validate(fine_tune_model, val_loader, entire_loader, logger, epoch, iteration, criterion, hparams)
+                    valid_score = validate(fine_tune_model, humm_val_loader, entire_loader, logger, epoch, iteration, hparams, record_key='humm_validation_score')
+                    orig_valid_score = validate(model, val_loader, entire_loader, logger, epoch, iteration, hparams, record_key='orig_validation_score')
                 else:
-                    valid_score = validate(model, val_loader, entire_loader, logger, epoch, iteration, criterion, hparams)
+                    valid_score = validate(model, val_loader, entire_loader, logger, epoch, iteration, hparams)
                     fine_tune_model = model
                 is_best = valid_score > best_valid_score
                 best_valid_score = max(valid_score, best_valid_score)
