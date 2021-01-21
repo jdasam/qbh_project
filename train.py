@@ -299,8 +299,12 @@ def train(output_directory, log_directory, checkpoint_path, hparams):
 
             if iteration % hparams.iters_per_checkpoint == 1: # and not iteration==0:
                 if hparams.combined_training:
+                    temp_check_path = output_directory / 'model_temp.pt'
+                    save_checkpoint(model, optimizer, learning_rate, iteration, temp_check_path)
+                    model = model.to('cpu')
                     fine_learning_rate = hparams.learning_rate
                     fine_tune_model = copy.deepcopy(model)
+                    fine_tune_model = fine_tune_model.to('cuda')
                     fine_optimizer = torch.optim.Adam(fine_tune_model.parameters(), lr=fine_learning_rate,
                                 weight_decay=hparams.weight_decay)
                     fine_tune_model.train()
@@ -314,7 +318,10 @@ def train(output_directory, log_directory, checkpoint_path, hparams):
                             torch.nn.utils.clip_grad_norm_(fine_tune_model.parameters(), hparams.grad_clip_thresh)
                             fine_optimizer.step()
                     valid_score = validate(fine_tune_model, humm_val_loader, entire_loader, logger, epoch, iteration, hparams, record_key='humm_validation_score')
+                    model, optimizer, learning_rate, iteration = load_checkpoint(temp_check_path, model, optimizer)
                     orig_valid_score = validate(model, val_loader, entire_loader, logger, epoch, iteration, hparams, record_key='orig_validation_score')
+                    if hparams.in_meta:
+                        response = scalars.send_valid_result(worker.id, epoch, iteration, {'humm_validation_score': valid_score, 'orig_validation_score': orig_valid_score})
                 else:
                     valid_score = validate(model, val_loader, entire_loader, logger, epoch, iteration, hparams)
                     fine_tune_model = model
@@ -322,9 +329,6 @@ def train(output_directory, log_directory, checkpoint_path, hparams):
                 best_valid_score = max(valid_score, best_valid_score)
                 if is_best:
                     checkpoint_path = output_directory / 'checkpoint_best.pt'
-                    # checkpoint_path = os.path.join(output_directory, "checkpoint_best")
-                    # checkpoint_path = os.path.join(
-                    #     output_directory, "checkpoint_{}".format(iteration))
                     save_checkpoint(fine_tune_model, optimizer, learning_rate, iteration,
                                     checkpoint_path)
                 else:
