@@ -319,6 +319,8 @@ def train(output_directory, log_directory, checkpoint_path, hparams):
                             fine_optimizer.step()
                     valid_score = validate(fine_tune_model, humm_val_loader, entire_loader, logger, epoch, iteration, hparams, record_key='humm_validation_score')
                     model, optimizer, learning_rate, iteration = load_checkpoint(temp_check_path, model, optimizer)
+                    fine_tune_model = fine_tune_model.to('cpu')
+                    model = model.to('cuda')
                     orig_valid_score = validate(model, val_loader, entire_loader, logger, epoch, iteration, hparams, record_key='orig_validation_score')
                     if hparams.in_meta:
                         response = scalars.send_valid_result(worker.id, epoch, iteration, {'humm_validation_score': valid_score, 'orig_validation_score': orig_valid_score})
