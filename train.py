@@ -104,7 +104,6 @@ def load_checkpoint(checkpoint_path, model, optimizer, train_on_humming=False):
     optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate,
                                 weight_decay=optimizer.defaults['weight_decay'])
     optimizer.load_state_dict(checkpoint_dict['optimizer'])
-
     return model, optimizer, learning_rate, iteration
 
 def save_checkpoint(model, optimizer, learning_rate, iteration, filepath):
