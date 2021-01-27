@@ -93,15 +93,18 @@ def load_model(hparams):
 def load_checkpoint(checkpoint_path, model, optimizer, train_on_humming=False):
     assert os.path.isfile(checkpoint_path)
     print("Loading checkpoint '{}'".format(checkpoint_path))
-    checkpoint_dict = torch.load(checkpoint_path, map_location='cpu')
+    checkpoint_dict = torch.load(checkpoint_path, map_location='cuda')
     model.load_state_dict(checkpoint_dict['state_dict'])
     iteration = checkpoint_dict['iteration']
     print("Loaded checkpoint '{}' from iteration {}" .format(
         checkpoint_path, iteration))
     if train_on_humming:
         return model, optimizer, 0, 0
-    optimizer.load_state_dict(checkpoint_dict['optimizer'])
     learning_rate = checkpoint_dict['learning_rate']
+    optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate,
+                                weight_decay=optimizer.defaults['weight_decay'])
+    optimizer.load_state_dict(checkpoint_dict['optimizer'])
+
     return model, optimizer, learning_rate, iteration
 
 def save_checkpoint(model, optimizer, learning_rate, iteration, filepath):
@@ -308,7 +311,7 @@ def train(output_directory, log_directory, checkpoint_path, hparams):
                     fine_optimizer = torch.optim.Adam(fine_tune_model.parameters(), lr=fine_learning_rate,
                                 weight_decay=hparams.weight_decay)
                     fine_tune_model.train()
-                    for epoch in range(hparams.epoch_for_humm_train):
+                    for fine_epoch in range(hparams.epoch_for_humm_train):
                         for batch in humm_train_loader:
                             fine_tune_model.zero_grad()
                             batch = batch.cuda()
@@ -318,9 +321,9 @@ def train(output_directory, log_directory, checkpoint_path, hparams):
                             torch.nn.utils.clip_grad_norm_(fine_tune_model.parameters(), hparams.grad_clip_thresh)
                             fine_optimizer.step()
                     valid_score = validate(fine_tune_model, humm_val_loader, entire_loader, logger, epoch, iteration, hparams, record_key='humm_validation_score')
+                    model = model.to('cuda')
                     model, optimizer, learning_rate, iteration = load_checkpoint(temp_check_path, model, optimizer)
                     fine_tune_model = fine_tune_model.to('cpu')
-                    model = model.to('cuda')
                     orig_valid_score = validate(model, val_loader, entire_loader, logger, epoch, iteration, hparams, record_key='orig_validation_score')
                     if hparams.in_meta:
                         response = scalars.send_valid_result(worker.id, epoch, iteration, {'humm_validation_score': valid_score, 'orig_validation_score': orig_valid_score})
