@@ -39,13 +39,17 @@ class SiameseLoss:
         pos_similarity = self.similiarity_fn(anchor, pos)
         return pos_similarity, neg_similarity
 
-    def max_hinge_loss(self, anchor, pos, neg):
+    def max_hinge_loss(self, anchor, pos, neg, return_item=False):
         pos_similarity, neg_similarity = self.cal_similarity(anchor, pos, neg)
         # if pos_similarity.shape == neg_similarity:
         #     return torch.mean(torch.max(torch.zeros_like(pos_similarity), self.margin - pos_similarity + neg_similarity))
         # else:
         pos_similarity = torch.mean(pos_similarity, axis=-1)
         neg_similarity = torch.mean(neg_similarity, axis=-1)
-        return torch.mean(torch.max(torch.zeros_like(pos_similarity), self.margin - pos_similarity + neg_similarity))
-    def __call__(self, anchor, pos, neg):
-        return self.max_hinge_loss(anchor, pos, neg)
+        loss = torch.max(torch.zeros_like(pos_similarity), self.margin - pos_similarity + neg_similarity)
+        if return_item:
+            return loss
+        else:
+            return torch.mean(loss)
+    def __call__(self, anchor, pos, neg, return_item=False):
+        return self.max_hinge_loss(anchor, pos, neg, return_item)
