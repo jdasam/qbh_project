@@ -50,6 +50,12 @@ class HParams:
         self.std_w=1 
         self.pitch_noise_w=0.1
         self.fill_w=1
+        self.smooth_w=5
+        self.smooth_order=2
+        self.ab_noise_r=0.05
+        self.ab_noise_w=4
+        self.add_abs_noise = False
+        self.add_smoothing = False
 
         ################################
         # Optimization Hyperparameters #

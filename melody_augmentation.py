@@ -2,6 +2,8 @@ import random
 import numpy as np
 import copy
 from sampling_utils import downsample_contour, downsample_with_float, downsample_contour_array
+from scipy.signal import savgol_filter
+
 # Input x is an np.array of pitch of each frame
 
 aug_types = ['different_tempo', 'different_key', 'different_std', 'addition', 'masking']
@@ -90,8 +92,27 @@ def add_pitch_noise_by_slice(melody, slice_idx, max_noise=0.1):
     dummy[dummy[:,1]==0, 0] = 0    
     return dummy
 
+def add_absurd_noise(melody, num_nosie_ratio=0.05, noise_weight = 4):
+    dummy = np.copy(melody)
+    len_melody = melody.shape[0]
+    num_noise = max(random.randint(0, int(len_melody * num_nosie_ratio)), 1)
+    noise_idx = random.sample(list(range(len_melody)), num_noise)
+    noise = [(random.random() - 0.5) * noise_weight for i in range(num_noise) ]
+    dummy[noise_idx, 0] = noise
+    dummy[noise_idx, 1] = 1
+
+    return dummy
+
+def apply_smoothing(melody, window_length=5, polyorder=2):
+    filled_melody = fill_non_voice_entire(melody)
+    smoothed_melody = savgol_filter(filled_melody[:,0], window_length, polyorder)
+    filled_melody[:,0] = smoothed_melody
+    filled_melody[melody[:,1]==0] = 0
+    return filled_melody
+
 def fill_non_voice_entire(melody):
     filled_melody = np.copy(melody)
+    filled_melody[melody[:,1]==0,0] = 0
     filled_melody[:,1] = 1
     if melody[0,1] == 0:
         filled_melody[0,0] = np.nonzero(melody[:,0])[0][0]
@@ -145,7 +166,7 @@ class MelodyAugmenter:
     def __call__(self, melody_array, aug_keys):
         return make_augmented_melody(melody_array, aug_keys, self.mask_w, self.tempo_w, self.tempo_slice, self.drop_w, self.std_w, self.pitch_noise_w, self.fill_w)
 
-def make_augmented_melody(melody_array, aug_keys, mask_w=1, tempo_w=1, tempo_slice=7, drop_w=0.3, std_w=1, pitch_noise_w=0.1, fill_w=1):
+def make_augmented_melody(melody_array, aug_keys, mask_w=1, tempo_w=1, tempo_slice=7, drop_w=0.3, std_w=1, pitch_noise_w=0.1, fill_w=1, smooth_w=5, smooth_order=2, ab_noise_r=0.05, ab_noise_w=4):
     # 1. masking in random ratio
     if 'masking' in aug_keys and mask_w != 0:
         masking_ratio = random.random() / 2 * mask_w
@@ -184,6 +205,9 @@ def make_augmented_melody(melody_array, aug_keys, mask_w=1, tempo_w=1, tempo_sli
         aug_std = (1 + (random.random() - 0.5) * std_w)
         aug_melody = with_different_std(aug_melody, aug_std)
 
+    if 'smoothing' in aug_keys and random.random() < 0.5:
+        aug_melody = apply_smoothing(aug_melody, window_length=smooth_w, polyorder=smooth_order)
+
     if 'pitch_noise' in aug_keys and pitch_noise_w!=0:
         # 4. add different pitch noise by slice
         slice_ids = slice_in_random_position(aug_melody.shape[0], tempo_slice)
@@ -192,5 +216,9 @@ def make_augmented_melody(melody_array, aug_keys, mask_w=1, tempo_w=1, tempo_sli
     if 'fill' in aug_keys and fill_w!=0:
         # randomly fill non voice part 
         aug_melody = fill_non_voice_random(aug_melody, fill_w)
+
+    if 'absurd_noise' in aug_keys:
+        aug_melody = add_absurd_noise(aug_melody, num_nosie_ratio=ab_noise_r, noise_weight=ab_noise_w)
+
     aug_melody[aug_melody[:,1]==0, 0] = 0
     return aug_melody

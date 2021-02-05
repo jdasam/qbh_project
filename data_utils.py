@@ -135,7 +135,7 @@ class WindowedContourSet:
             self.contours = path
         self.num_neg_samples = num_neg_samples
         self.num_aug_samples = num_aug_samples
-        self.aug_keys = ['tempo', 'key', 'std', 'masking', 'pitch_noise', 'fill']
+        self.aug_keys = ['tempo', 'key', 'std', 'masking', 'pitch_noise', 'fill', 'smoothing', 'absurd_noise']
         # self.aug_types = ['different_tempo', 'different_key']
         self.down_f = 10
         self.set_type = set_type
@@ -199,13 +199,13 @@ class WindowedContourSet:
 
 
 class HummingPairSet:
-    def __init__(self, contour_pairs, aug_weights, set_type, num_aug_samples=4, num_neg_samples=4 ):
+    def __init__(self, contour_pairs, aug_weights, set_type, aug_keys, num_aug_samples=4, num_neg_samples=4 ):
         # with open(path, "rb") as f:
         #     self.contour_pairs = pickle.load(f)
         self.contours = contour_pairs
         self.num_neg_samples = num_neg_samples
         self.num_aug_samples = num_aug_samples
-        self.aug_keys = ['tempo', 'key', 'std', 'pitch_noise']
+        self.aug_keys = aug_keys
         self.set_type = set_type
         self.down_f = 10
 

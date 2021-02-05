@@ -140,12 +140,15 @@ def load_pitch_csv(pitch_path):
     data = np.asarray(data[1:], dtype='float32')
     return data
 
-def load_crepe_pitch(pitch_path, threshold=0.7, to_midi_pitch=True):
+def load_crepe_pitch(pitch_path, threshold=0.7, to_midi_pitch=True, cut_low_frequency=True):
     pitch_data = load_pitch_csv(pitch_path)
     pitch_data[pitch_data[:,2]<threshold, 1] = 0
     pitch_data = pitch_data[:,1]
+    if cut_low_frequency:
+        pitch_data[pitch_data<80] = 0
     if to_midi_pitch:
         pitch_data[pitch_data>0] = np.log2(pitch_data[pitch_data>0]/440) * 12 + 69
+
     return pitch_data
 
 def pitch_array_to_formatted(pitch_array, mean=61.702336487738215, std=5.5201786930065415):

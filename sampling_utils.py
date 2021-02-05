@@ -50,6 +50,7 @@ def downsample_contour_array(contour, down_f=10, down_type='sample'):
         contour_d = np.nanmean(contour_d, axis=1)
     elif down_type == 'median':
         contour_d = np.nanmedian(contour_d, axis=1)
+        contour_d[contour_d[:,1]<1] = 0
     else:
         contour_d  = contour_d[:, 0]
     

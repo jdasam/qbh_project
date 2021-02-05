@@ -30,9 +30,14 @@ from metalearner.api import scalars
 def prepare_humming_db_loaders(hparams):
     with open(hparams.humming_path, "rb") as f:
         contour_pairs = pickle.load(f)
+    aug_keys = ['tempo', 'key', 'std', 'pitch_noise']
+    if hparams.add_abs_noise:
+        aug_keys.append('absurd_noise')
+    if hparams.add_smoothing:
+        aug_keys.append('smoothing')
     aug_weights = make_aug_param_dictionary(hparams)
-    train_set = HummingPairSet(contour_pairs, aug_weights, "train", num_aug_samples=hparams.num_pos_samples, num_neg_samples=hparams.num_neg_samples)
-    valid_set = HummingPairSet(contour_pairs, [], "valid", num_aug_samples=0, num_neg_samples=0)
+    train_set = HummingPairSet(contour_pairs, aug_weights, "train", aug_keys, num_aug_samples=hparams.num_pos_samples, num_neg_samples=hparams.num_neg_samples)
+    valid_set = HummingPairSet(contour_pairs, [], "valid", aug_keys, num_aug_samples=0, num_neg_samples=0)
     # test_set = HummingPairSet(contour_pairs, "test", num_aug_samples=0, num_neg_samples=0)
     train_loader = DataLoader(train_set, hparams.batch_size, shuffle=True,num_workers=hparams.num_workers,
         collate_fn=ContourCollate(hparams.num_pos_samples, hparams.num_neg_samples, for_cnn=True), pin_memory=True)
@@ -397,6 +402,9 @@ if __name__ == '__main__':
     parser.add_argument('--iters_per_humm_train', type=int)
     parser.add_argument('--combined_training', type=lambda x: (str(x).lower() == 'true'))
     parser.add_argument('--epoch_for_humm_train', type=int)
+
+    parser.add_argument('--add_abs_noise', type=lambda x: (str(x).lower() == 'true'))
+    parser.add_argument('--add_smoothing', type=lambda x: (str(x).lower() == 'true'))
 
     parser.add_argument('--mask_w', type=float)
     parser.add_argument('--tempo_w', type=float)
