@@ -237,7 +237,7 @@ class HummingPairSet:
         neg_samples = []
         
         
-        if self.set_type == 'valid':
+        if self.set_type == 'valid' or self.set_type == 'test':
             downsampled_melody = downsample_contour_array(selected_melody)
             return downsampled_melody, selected_song_id
             # return [downsampled_melody] * len(aug_samples), [selected_song_id] * len(aug_samples)
