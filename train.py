@@ -373,6 +373,8 @@ if __name__ == '__main__':
     parser.add_argument('--hidden_size', type=int, required=False)        
     parser.add_argument('--embed_size', type=int, required=False)
     parser.add_argument('--kernel_size', type=int, required=False)
+    parser.add_argument('--compression_ratio', type=int, required=False)
+
     parser.add_argument('--num_head', type=int, required=False)
     parser.add_argument('--batch_size', type=int, required=False)
     parser.add_argument('--valid_batch_size', type=int, required=False)

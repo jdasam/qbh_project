@@ -39,6 +39,7 @@ class HParams:
         self.use_pre_encoder = False
         self.use_res = False
         self.use_gradual_size = False
+        self.compression_ratio = 160
 
         ################################
         # Augmentation Hyperparameters #
