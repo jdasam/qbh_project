@@ -27,7 +27,7 @@ from metalearner.common.config import experiment, worker
 from metalearner.api import scalars
 
 
-def prepare_humming_db_loaders(hparams):
+def prepare_humming_db_loaders(hparams, return_test=False):
     with open(hparams.humming_path, "rb") as f:
         contour_pairs = pickle.load(f)
     aug_keys = ['tempo', 'key', 'std', 'pitch_noise']
@@ -52,8 +52,13 @@ def prepare_humming_db_loaders(hparams):
     entire_loader = DataLoader(entireset, hparams.valid_batch_size, shuffle=False,num_workers=hparams.num_workers,
         collate_fn=ContourCollate(0, 0, for_cnn=True), pin_memory=True, drop_last=False)
 
-
-    return train_loader, valid_loader, entire_loader
+    if return_test:
+        test_set = HummingPairSet(contour_pairs, [], "test", [], num_aug_samples=0, num_neg_samples=0)
+        test_loader = DataLoader(test_set, hparams.valid_batch_size, shuffle=False,num_workers=hparams.num_workers,
+            collate_fn=ContourCollate(0, 0, for_cnn=True), pin_memory=True, drop_last=False)
+        return test_loader, entire_loader
+    else:
+        return train_loader, valid_loader, entire_loader
     
 def prepare_dataloaders(hparams, valid_only=False):
     # Get data, data loaders and collate function ready
