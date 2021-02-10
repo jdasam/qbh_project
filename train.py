@@ -420,6 +420,8 @@ if __name__ == '__main__':
     parser.add_argument('--std_w', type=float)
     parser.add_argument('--pitch_noise_w', type=float)
     parser.add_argument('--fill_w', type=float)
+    parser.add_argument('--abs_noise_r', type=float)
+    parser.add_argument('--abs_noise_w', type=float)
 
 
     args = parser.parse_args()
