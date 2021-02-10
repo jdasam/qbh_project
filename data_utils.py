@@ -217,9 +217,11 @@ class HummingPairSet:
         if set_type =='train':
             self.contours = [x for x in self.contours if x['meta']['song_group']=="900"]
         elif set_type =='valid':
-            self.contours = [x for x in self.contours if x['meta']['song_group']=="100" and x['meta']['singer_group']=="P"]
+            # self.contours = [x for x in self.contours if x['meta']['song_group']=="100" and x['meta']['singer_group']=="P"]
+            self.contours = [x for x in self.contours if x['meta']['song_group']=="100" and int(x['meta']['song_idx'])%2==0]
         elif set_type == 'test':
-            self.contours = [x for x in self.contours if x['meta']['song_group']=="100" and x['meta']['singer_group']=="N"]
+            # self.contours = [x for x in self.contours if x['meta']['song_group']=="100" and x['meta']['singer_group']=="N"]
+            self.contours = [x for x in self.contours if x['meta']['song_group']=="100" and int(x['meta']['song_idx'])%2==1]
 
     def __getitem__(self, index):
         """
