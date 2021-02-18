@@ -142,7 +142,8 @@ class WindowedContourSet:
         self.min_aug = min_aug
 
         if set_type =='train':
-            self.contours = self.contours[:int(len(self)*0.8)]
+            # self.contours = self.contours[:int(len(self)*0.8)]
+            self.contours = self.contours
         elif set_type =='valid':
             self.contours = self.contours[int(len(self)*0.8):int(len(self)*0.9)]
         elif set_type == 'test':
