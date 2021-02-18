@@ -182,7 +182,8 @@ class MelodyLoader:
         slice_pos = list(range(0, melody_form.shape[0] - win_size, hop_size))
         slice_pos.append(melody_form.shape[0] - win_size)
         overlapped_melodies = [{'contour': melody_form[i:i+win_size],
-                                'song_id': int(path.stem[6:]),
+                                # 'song_id': int(path.stem[6:]),
+                                'song_id': int(path.stem[:-6]),
                                 'frame_pos': (i, i+win_size)}for i in slice_pos if sum(melody_form[i:i+win_size, 1]) > win_size/4 ]
         return overlapped_melodies
         
