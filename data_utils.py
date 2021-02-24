@@ -123,7 +123,7 @@ class ContourSet:
 
 
 class WindowedContourSet:
-    def __init__(self, path, aug_weights, song_ids=[], num_aug_samples=4, num_neg_samples=4, quantized=True, pre_load=False, set_type='entire', min_aug=1):
+    def __init__(self, path, aug_weights, song_ids=[], num_aug_samples=4, num_neg_samples=4, quantized=True, pre_load=False, set_type='entire', min_aug=1, min_vocal_ratio=0.5):
         if not pre_load:
             self.path = Path(path)
             self.melody_txt_list = [song_id_to_pitch_txt_path(self.path, x) for x in song_ids]
@@ -138,6 +138,7 @@ class WindowedContourSet:
         self.down_f = 10
         self.set_type = set_type
         self.min_aug = min_aug
+        self.min_vocal_ratio = min_vocal_ratio
 
         if set_type =='train':
             # self.contours = self.contours[:int(len(self)*0.8)]
@@ -151,7 +152,7 @@ class WindowedContourSet:
             self.melody_augmentor = mel_aug.MelodyAugmenter(aug_weights)
 
     def load_melody(self):
-        contours = [self.melody_loader.get_overlapped_contours(txt) for txt in tqdm(self.melody_txt_list)]
+        contours = [self.melody_loader.get_overlapped_contours(txt, min_ratio=self.min_vocal_ratio) for txt in tqdm(self.melody_txt_list)]
         contours = [x for x in contours if x is not None and x != []]
         contours = [y for x in contours for y in x]
         return contours

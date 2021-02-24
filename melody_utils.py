@@ -173,7 +173,7 @@ class MelodyLoader:
         else:
             return None
     
-    def get_overlapped_contours(self, path, win_size=2000, hop_size=500, min_ratio=0.25):
+    def get_overlapped_contours(self, path, win_size=2000, hop_size=500, min_ratio=0.5):
         contour = load_melody(path)
         melody_form = pitch_array_to_formatted(np.asarray(contour))
         # melody_ds = downsample_contour(contour)
