@@ -128,9 +128,7 @@ class WindowedContourSet:
             self.path = Path(path)
             self.melody_txt_list = [song_id_to_pitch_txt_path(self.path, x) for x in song_ids]
             self.melody_loader = MelodyLoader(in_midi_pitch=True, is_quantized=quantized)
-
             self.contours = self.load_melody()
-
         else:
             self.contours = path
         self.num_neg_samples = num_neg_samples
@@ -422,8 +420,8 @@ if __name__ == '__main__':
     with open('flo_metadata.dat', 'rb') as f:
         metadata = pickle.load(f)
     # selected_genres = [29]
-    selected_genres = [4]
-    # selected_genres = [4, 12, 13, 17, 10, 7,15, 11, 9]
+    # selected_genres = [4]
+    selected_genres = [4, 12, 13, 17, 10, 7,15, 11, 9]
 
     song_ids = get_song_ids_of_selected_genre(metadata, selected_genre=selected_genres)
     with open('humm_db_ids.dat', 'rb') as f:

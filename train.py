@@ -16,7 +16,7 @@ from torch.utils.data import DataLoader
 # from adamp import AdamP
 
 from model import ContourEncoder, CnnEncoder
-from data_utils import ContourSet, ContourCollate, HummingPairSet, pad_collate, WindowedContourSet
+from data_utils import ContourSet, ContourCollate, HummingPairSet, pad_collate, WindowedContourSet, get_song_ids_of_selected_genre
 from torch.optim.lr_scheduler import StepLR
 from logger import Logger
 from hparams import HParams
@@ -59,20 +59,31 @@ def prepare_humming_db_loaders(hparams, return_test=False):
         return test_loader, entire_loader
     else:
         return train_loader, valid_loader, entire_loader
-    
+
+        
 def prepare_dataloaders(hparams, valid_only=False):
     # Get data, data loaders and collate function ready
-    with open(hparams.contour_path, 'rb') as f:
-        # pre_loaded_data = json_load(f)
-        pre_loaded_data = pickle.load(f)
+    with open('flo_metadata.dat', 'rb') as f:
+        metadata = pickle.load(f)
+    selected_genres = [4, 12, 13, 17, 10, 7,15, 11, 9]
+    with open('humm_db_ids.dat', 'rb') as f:
+        humm_ids = pickle.load(f)
+
+    song_ids = get_song_ids_of_selected_genre(metadata, selected_genre=selected_genres)
+    song_ids += humm_ids
+    entireset = WindowedContourSet(hparams.data_dir, aug_weights=[], song_ids=song_ids, set_type='entire', pre_load=False, num_aug_samples=0, num_neg_samples=0)
+
+    # with open(hparams.contour_path, 'rb') as f:
+    #     # pre_loaded_data = json_load(f)
+    #     pre_loaded_data = pickle.load(f)
     if hparams.is_scheduled:
         min_aug=1
     else:
         min_aug=10
     aug_weights = make_aug_param_dictionary(hparams)
-    trainset = WindowedContourSet(pre_loaded_data, aug_weights, set_type='train', pre_load=True, num_aug_samples=hparams.num_pos_samples, num_neg_samples=hparams.num_neg_samples, min_aug=min_aug)
-    entireset = WindowedContourSet(pre_loaded_data, [], set_type='entire', pre_load=True, num_aug_samples=0, num_neg_samples=0)
-    validset =  WindowedContourSet(pre_loaded_data, aug_weights, set_type='valid', pre_load=True, num_aug_samples=4, num_neg_samples=0, min_aug=10)
+    trainset = WindowedContourSet(entireset.contours, aug_weights, set_type='train', pre_load=True, num_aug_samples=hparams.num_pos_samples, num_neg_samples=hparams.num_neg_samples, min_aug=min_aug)
+    # entireset = WindowedContourSet(pre_loaded_data, [], set_type='entire', pre_load=True, num_aug_samples=0, num_neg_samples=0)
+    validset =  WindowedContourSet(entireset.contours, aug_weights, set_type='valid', pre_load=True, num_aug_samples=4, num_neg_samples=0, min_aug=10)
 
     train_loader = DataLoader(trainset, hparams.batch_size, shuffle=True,num_workers=hparams.num_workers,
         collate_fn=ContourCollate(hparams.num_pos_samples, hparams.num_neg_samples, for_cnn=True), pin_memory=True)

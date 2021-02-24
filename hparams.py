@@ -22,6 +22,7 @@ class HParams:
         # self.contour_path = '/home/svcapp/userdata/flo_melody/contour_subgenre_norm.json'
         self.contour_path = '/home/svcapp/userdata/flo_melody/overlapped.dat'
         self.humming_path = '/home/svcapp/userdata/flo_melody/humming_db_contour_pairs.dat'
+        self.data_dir = '/home/svcapp/userdata/flo_data_backup'
         self.train_on_humming = False
         self.combined_training = True
 

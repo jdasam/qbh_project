@@ -173,7 +173,7 @@ class MelodyLoader:
         else:
             return None
     
-    def get_overlapped_contours(self, path, win_size=2000, hop_size=500):
+    def get_overlapped_contours(self, path, win_size=2000, hop_size=500, min_ratio=0.25):
         contour = load_melody(path)
         contour = quantizing_hz(contour, self.in_midi_pitch, self.is_quantized)
         # melody_ds = downsample_contour(contour)
@@ -184,7 +184,7 @@ class MelodyLoader:
         overlapped_melodies = [{'contour': melody_form[i:i+win_size],
                                 # 'song_id': int(path.stem[6:]),
                                 'song_id': int(path.stem[:-6]),
-                                'frame_pos': (i, i+win_size)}for i in slice_pos if sum(melody_form[i:i+win_size, 1]) > win_size/4 ]
+                                'frame_pos': (i, i+win_size)} for i in slice_pos if sum(melody_form[i:i+win_size, 1]) > win_size * min_ratio]
         return overlapped_melodies
         
     def __call__(self, path):
