@@ -71,7 +71,7 @@ def prepare_dataloaders(hparams, valid_only=False):
 
     song_ids = get_song_ids_of_selected_genre(metadata, selected_genre=selected_genres)
     song_ids += humm_ids
-    entireset = WindowedContourSet(hparams.data_dir, aug_weights=[], song_ids=song_ids, set_type='entire', pre_load=False, num_aug_samples=0, num_neg_samples=0)
+    entireset = WindowedContourSet(hparams.data_dir, aug_weights=[], song_ids=song_ids, set_type='entire', pre_load=False, num_aug_samples=0, num_neg_samples=0, min_vocal_ratio=hparams.min_vocal_ratio)
 
     # with open(hparams.contour_path, 'rb') as f:
     #     # pre_loaded_data = json_load(f)
@@ -383,6 +383,8 @@ if __name__ == '__main__':
                     help='path to contour.json')
     parser.add_argument('--humming_path', type=str,
                     help='path to contour.json')
+    parser.add_argument('--data_dir', type=str,
+                    help='path to pitch txt dir')
     parser.add_argument('--in_metalearner', type=lambda x: (str(x).lower() == 'true'), default=False, help='whether work in meta learner')
     parser.add_argument('--warm_start', action='store_true',
                         help='load model weights only, ignore specified layers')
@@ -409,6 +411,7 @@ if __name__ == '__main__':
     parser.add_argument('--num_pos_samples', type=int)
     parser.add_argument('--num_layers', type=int)
     parser.add_argument('--loss_margin', type=float)
+    parser.add_argument('--min_vocal_ratio', type=float)
 
     parser.add_argument('--summ_type', type=str)
     parser.add_argument('--use_pre_encoder', type=lambda x: (str(x).lower() == 'true'))

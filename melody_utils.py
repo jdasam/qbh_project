@@ -173,18 +173,21 @@ class MelodyLoader:
         else:
             return None
     
-    def get_overlapped_contours(self, path, win_size=2000, hop_size=500, min_ratio=0.25):
+    def get_overlapped_contours(self, path, win_size=2000, hop_size=500, min_ratio=0.5):
         contour = load_melody(path)
-        contour = quantizing_hz(contour, self.in_midi_pitch, self.is_quantized)
-        # melody_ds = downsample_contour(contour)
-        
         melody_form = pitch_array_to_formatted(np.asarray(contour))
+        # melody_ds = downsample_contour(contour)
+        melody_form = scale_to_midi(melody_form)
         slice_pos = list(range(0, melody_form.shape[0] - win_size, hop_size))
         slice_pos.append(melody_form.shape[0] - win_size)
+        array_overlapped = np.asarray([melody_form[i:i+win_size] for i in slice_pos])
+        is_valid = np.sum(array_overlapped[:,:,1], axis=1) > win_size * min_ratio
         overlapped_melodies = [{'contour': melody_form[i:i+win_size],
                                 # 'song_id': int(path.stem[6:]),
                                 'song_id': int(path.stem[:-6]),
-                                'frame_pos': (i, i+win_size)} for i in slice_pos if sum(melody_form[i:i+win_size, 1]) > win_size * min_ratio]
+                                'frame_pos': (i, i+win_size)} for n, i in enumerate(slice_pos)
+                                # if sum(melody_form[i:i+win_size, 1]) > win_size * min_ratio]
+                                if is_valid[n]]
         return overlapped_melodies
         
     def __call__(self, path):
@@ -420,10 +423,15 @@ def quantizing_hz(contour, to_midi=False, quantization=True):
             return 0
     return [quantize_or_return_zero(x) for x in contour]
 
+def scale_to_midi(contour):
+    contour[contour[:,1]==1,0] = np.log2(contour[contour[:,1]==1,0] / 440) * 12 + 69
+    return contour
+
 def load_melody(path):
     with open(path, "r") as f:
         lines = f.readlines()
     return [float(x.split(' ')[1][:-2]) for x in lines]
+    # return np.loadtxt(path, dtype=np.float32, delimiter=' ')[:,1]
 
 def make_quantization_info(low_pitch=110):
     pitch = low_pitch
