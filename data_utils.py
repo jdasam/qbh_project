@@ -14,7 +14,9 @@ import json
 from sampling_utils import downsample_contour, downsample_contour_array
 from segmentation_utils import find_melody_seg_fast
 from melody_utils import MelodyLoader
-        
+import librosa
+from madmom.audio.signal import Signal
+# from pydub import AudioSegment
 
 class ContourSet:
     def __init__(self, path, song_ids=[], num_aug_samples=4, num_neg_samples=4, quantized=True, pre_load=False, set_type='entire', min_aug=1):
@@ -123,15 +125,15 @@ class ContourSet:
 
 
 class WindowedContourSet:
-    def __init__(self, path, aug_weights, song_ids=[], num_aug_samples=4, num_neg_samples=4, quantized=True, pre_load=False, set_type='entire', min_aug=1, min_vocal_ratio=0.5):
+    def __init__(self, path, aug_weights, song_ids=[], num_aug_samples=4, num_neg_samples=4, quantized=True, pre_load=False, pre_load_data=None, set_type='entire', min_aug=1, min_vocal_ratio=0.5):
         self.min_vocal_ratio = min_vocal_ratio
+        self.path = Path(path)
         if not pre_load:
-            self.path = Path(path)
             self.melody_txt_list = [song_id_to_pitch_txt_path(self.path, x) for x in song_ids]
             self.melody_loader = MelodyLoader(in_midi_pitch=True, is_quantized=quantized)
             self.contours = self.load_melody()
         else:
-            self.contours = path
+            self.contours = pre_load_data
         self.num_neg_samples = num_neg_samples
         self.num_aug_samples = num_aug_samples
         self.aug_keys = ['tempo', 'key', 'std', 'masking', 'pitch_noise', 'fill', 'smoothing', 'absurd_noise']
@@ -262,6 +264,58 @@ def pad_collate(batch):
     return torch.nn.utils.rnn.pad_sequence(seq, batch_first=True)
 
 
+class AudioSet(WindowedContourSet):
+    def __init__(self, path, aug_weights, song_ids=[], num_aug_samples=4, num_neg_samples=4, quantized=True, pre_load=False, pre_load_data=None, set_type='entire', min_aug=1, min_vocal_ratio=0.5):
+        super(AudioSet, self).__init__(path, aug_weights, song_ids, num_aug_samples, num_neg_samples, quantized, pre_load, pre_load_data, set_type, min_aug, min_vocal_ratio)
+        self.x_train_mean = np.load('x_data_mean_total_31.npy')
+        self.x_train_std = np.load('x_data_std_total_31.npy')
+
+    def load_audio(self, song_id, frame_pos):
+        audio_path = song_id_to_audio_path(self.path, song_id)
+        x_test, x_spec = load_audio_and_get_spec(audio_path, frame_pos)
+        x_test = (x_test-self.x_train_mean)/(self.x_train_std+0.0001)
+        x_test = x_test[:, :, :, np.newaxis]
+        return x_test
+    
+
+    def __getitem__(self, index):
+        """
+        for training:
+        return: (downsampled_melody, [augmented_melodies], [negative_sampled_melodies])
+        for validation:
+        return: ([augmented_melodies], [selected_song_id])
+        """
+        selected_melody = self.contours[index]['contour']
+        selected_song_id = self.contours[index]['song_id']
+        selected_frame = self.contours[index]['frame_pos']
+        # downsampled_melody = downsample_contour_array(selected_melody)
+        if self.set_type != "valid":
+            original_audio = self.load_audio(selected_song_id, selected_frame)
+
+        if self.set_type == 'entire':
+            return original_audio, selected_song_id
+
+        aug_samples = []
+        neg_samples = []
+        
+        if self.min_aug < len(self.aug_keys):
+            aug_samples = [self.melody_augmentor(selected_melody, random.sample(self.aug_keys, random.randint(self.min_aug,len(self.aug_keys)))) for i in range(self.num_aug_samples)]
+        else:
+            aug_samples = [self.melody_augmentor(selected_melody, self.aug_keys) for i in range(self.num_aug_samples)]
+        
+        if self.set_type == 'valid':
+            return aug_samples, [selected_song_id] * len(aug_samples)
+            # return [downsampled_melody] * len(aug_samples), [selected_song_id] * len(aug_samples)
+
+        # sampling negative melodies
+        while len(neg_samples) < self.num_neg_samples:
+            neg_idx = random.randint(0, len(self)-1)
+            if self.contours[neg_idx]['song_id'] != selected_song_id:
+                neg_samples.append(downsample_contour_array(self.contours[neg_idx]['contour'], self.down_f))
+        return original_audio, aug_samples, neg_samples
+
+        
+
 class ContourCollate:
     # def __init__(self, mean, std):
     #     self.mean = mean
@@ -343,6 +397,112 @@ class ContourCollate:
             return mels[:, 0, :, :], mels[:, 1, :, :], mels[:, 2, :, :]
 
 
+class AudioContourCollate:
+    # def __init__(self, num_pos, num_neg, for_cnn=False):
+    #     self.num_pos = num_pos
+    #     self.num_neg = num_neg
+
+    def to_tensor_list(self, alist):
+        return [torch.Tensor(x) for x in alist]
+
+    def __call__(self, batch):
+        # batch: [(audio_anchor, positive_contour, negative_contour) ]* num_batch
+        anchor_audio = torch.Tensor([x[0] for x in batch])
+        anchor_audio.requires_grad = False
+        total = [self.to_tensor_list(x[1]) + self.to_tensor_list(x[2]) for x in batch ]
+        total_flattened = [y for x in total for y in x]
+        max_length = max([len(x) for x in total_flattened])
+        dummy = torch.zeros(len(total_flattened), max_length, 2)
+        for i in range(len(total_flattened)):
+            seq = total_flattened[i]
+            left_margin = (max_length - seq.shape[0]) // 2
+            dummy[i,left_margin:left_margin+seq.shape[0],:] = seq
+        return anchor_audio, dummy
+
+class AudioCollate:
+    def __call__(self, batch):
+        out = [torch.Tensor(x[0]) for x in batch]
+        song_ids = torch.LongTensor([x[1] for x in batch])
+
+        max_length = max([len(x) for x in out])
+        dummy = torch.zeros(len(out), max_length, out[0].shape[1], out[0].shape[2], 1)
+        for i in range(len(out)):
+            seq = out[i]
+            left_margin = (max_length - seq.shape[0]) // 2
+            dummy[i,left_margin:left_margin+seq.shape[0]] = seq
+        return dummy, song_ids
+
+
+class AudioOnlySet:
+    def __init__(self, path, song_ids,  set_type='entire'):
+        self.path = Path(path)
+        self.songs = song_ids
+        self.x_train_mean = np.load('x_data_mean_total_31.npy')
+        self.x_train_std = np.load('x_data_std_total_31.npy')
+        self.slice_sec = 3
+        self.sample_rate = 8000
+        self.slice_samples = self.slice_sec * self.sample_rate
+        self.win_size = 31
+
+        if set_type =='train':
+            # self.contours = self.contours[:int(len(self)*0.8)]
+            self.songs = self.songs[:int(len(self)*0.8)]
+        elif set_type =='valid':
+            self.songs = self.songs[int(len(self)*0.8):int(len(self)*0.9)]
+        elif set_type == 'test':
+            self.songs = self.songs[int(len(self)*0.9):]
+
+    # def load_audio(self, song_id, frame_pos):
+    #     audio_path = song_id_to_audio_path(self.path, song_id)
+    #     x_test, x_spec = load_audio_and_get_spec(audio_path, frame_pos)
+    #     x_test = (x_test-self.x_train_mean)/(self.x_train_std+0.0001)
+    #     x_test = x_test[:, :, :, np.newaxis]
+    #     return x_test
+    
+    def spec_to_slice_norm(self, spec, win_size):
+        num_frames = spec.shape[1]
+
+        # for padding
+        padNum = num_frames % win_size
+        if padNum != 0:
+            len_pad = win_size - padNum
+            padding_feature = np.zeros(shape=(513, len_pad))
+            spec = np.concatenate((spec, padding_feature), axis=1)
+            num_frames = num_frames + len_pad
+        
+        x_test = spec.reshape(spec.shape[0], 1, -1, win_size).transpose(2, 1, 3,0)
+        x_test = (x_test-self.x_train_mean)/(self.x_train_std+0.0001)
+        return x_test
+
+    def __len__(self):
+        return len(self.songs)
+
+
+    def __getitem__(self, index):
+        """
+        for training:
+        return: (downsampled_melody, [augmented_melodies], [negative_sampled_melodies])
+        for validation:
+        return: ([augmented_melodies], [selected_song_id])
+        """
+        selected_song = self.songs[index]
+        # downsampled_melody = downsample_contour_array(selected_melody)
+        audio_path = song_id_to_audio_path(self.path, selected_song)
+        audio_samples = load_audio_sample(audio_path, self.sample_rate)
+        slice_pos = random.randint(0, len(audio_samples)-1-self.slice_samples)
+        audio_sliced = audio_samples[slice_pos:slice_pos + self.slice_samples]
+        
+        spec_10 = get_spec_with_librosa(audio_sliced)
+        spec_10 = self.spec_to_slice_norm(spec_10, self.win_size)
+        return audio_sliced, spec_10
+
+class AudioSpecCollate:
+    def __call__(self, batch):
+        audio = torch.Tensor([x[0] for x in batch])
+        spec = torch.Tensor([x[1] for x in batch])
+        spec = spec.view(spec.shape[0]*spec.shape[1], 1, spec.shape[3], spec.shape[4])
+        return audio, spec
+
 # class HummingData:
 #     def __init__(self, path):
 #         selected_100, selected_900 = humm_utils.load_meta_from_excel()
@@ -416,6 +576,58 @@ def song_id_to_pitch_txt_path(path, song_id):
         txt_path = path / 'qbh' / f'{song_id}_pitch.txt'
     return txt_path
     # return path  / f'pitch_{song_id}.txt'
+
+def song_id_to_audio_path(path, song_id):
+    # path: pathlib.Path()
+    audio_path = path / str(song_id)[:3] / str(song_id)[3:6] / '{}.aac'.format(song_id)
+    if not audio_path.exists():
+        audio_path = audio_path.with_suffix('.m4a')
+    if not audio_path.exists():
+        audio_path = path / 'qbh' / f'{song_id}.aac'
+    return audio_path
+    # return path  / f'pitch_{song_id}.txt'
+
+
+def load_audio_sample(path, sr=8000):
+    y = Signal(str(path), sample_rate=sr, dtype=np.float32, num_channels=1)
+    return y
+
+def get_spec_with_librosa(y):
+    S = librosa.core.stft(y, n_fft=1024, hop_length=80*1, win_length=1024)
+    x_spec = np.abs(S)
+    x_spec = librosa.core.power_to_db(x_spec, ref=np.max)
+    x_spec = x_spec.astype(np.float32)
+    return x_spec
+
+def load_audio_and_get_spec(path, frame_pos, win_size=31):
+    x_test = []
+
+    # y, sr = librosa.load(file_name, sr=8000)
+    # *********** madmom.Signal() is faster than librosa.load() ***********
+    # audio = AudioSegment.from_file(path, "m4a").set_frame_rate(8000).set_channels(1)._data
+    # y = np.frombuffer(audio, dtype=np.int16) / 32768
+    y = Signal(path, sample_rate=8000, dtype=np.float32, num_channels=1)
+    y_slice = y[frame_pos[0]*80:frame_pos[1]*80]
+    S = librosa.core.stft(y_slice, n_fft=1024, hop_length=80*1, win_length=1024)
+    x_spec = np.abs(S)
+    x_spec = librosa.core.power_to_db(x_spec, ref=np.max)
+    x_spec = x_spec.astype(np.float32)
+    num_frames = x_spec.shape[1]
+
+    # for padding
+    padNum = num_frames % win_size
+    if padNum != 0:
+        len_pad = win_size - padNum
+        padding_feature = np.zeros(shape=(513, len_pad))
+        x_spec = np.concatenate((x_spec, padding_feature), axis=1)
+        num_frames = num_frames + len_pad
+
+    for j in range(0, num_frames, win_size):
+        x_test_tmp = x_spec[:, range(j, j + win_size)].T
+        x_test.append(x_test_tmp)
+    x_test = np.array(x_test)
+
+    return x_test, x_spec
 
 if __name__ == '__main__':
     with open('flo_metadata.dat', 'rb') as f:

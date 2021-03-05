@@ -29,6 +29,8 @@ class SiameseLoss:
         #     anchor_tiled = anchor.unsqueeze(1).repeat(1, num_neg_sample, 1, 1).squeeze(2)
         #     neg_similarity = self.similiarity_fn(anchor_tiled, neg)
         # else:
+        if len(anchor.shape) ==2:
+            anchor = anchor.unsqueeze(1)
         neg_similarity = self.similiarity_fn(anchor, neg)
         # if anchor.shape[1] != pos.shape[1]:
         #     # pos = pos.reshape(anchor.shape[0], -1, anchor.shape[-1])

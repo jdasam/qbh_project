@@ -22,7 +22,7 @@ class HParams:
         # self.contour_path = '/home/svcapp/userdata/flo_melody/contour_subgenre_norm.json'
         self.contour_path = '/home/svcapp/userdata/flo_melody/overlapped.dat'
         self.humming_path = '/home/svcapp/userdata/flo_melody/humming_db_contour_pairs.dat'
-        self.data_dir = '/home/svcapp/userdata/flo_pitch/'
+        self.data_dir = '/home/svcapp/userdata/flo_data_backup/'
         self.train_on_humming = False
         self.combined_training = True
 
@@ -78,8 +78,8 @@ class HParams:
 
         self.grad_clip_thresh=1.0
         self.num_workers = 4
-        self.batch_size = 24
-        self.valid_batch_size = 64
+        self.batch_size = 8
+        self.valid_batch_size = 8
         self.drop_out = 0.2
         self.loss_margin = 0.5
         self.min_vocal_ratio = 0.5

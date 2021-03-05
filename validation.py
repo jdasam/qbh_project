@@ -32,8 +32,12 @@ def get_contour_embeddings(model, cmp_loader):
     model.eval()
     with torch.no_grad():
         for batch in cmp_loader:
-            contour, song_ids = batch
-            embeddings = model(contour.cuda())
+            audio, song_ids = batch
+            # embeddings = model(contour.cuda())
+            num_batch = audio.shape[0]
+            audio = audio.view(audio.shape[0]*audio.shape[1], audio.shape[2], audio.shape[3], audio.shape[4])
+            audio = audio.permute(0,3,1,2)
+            embeddings = model(audio.cuda(), num_batch)
             num_samples = song_ids.shape[0]
             total_embs[current_idx:current_idx+num_samples,:] = embeddings / embeddings.norm(dim=1)[:,None]
             total_song_ids[current_idx:current_idx+num_samples] = song_ids

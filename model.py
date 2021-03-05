@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 import math
 import random
+from nnAudio import Spectrogram
 
 from torch.nn.modules.pooling import MaxPool1d
 from module import ConvNorm, Res_1d
@@ -53,7 +54,7 @@ class CnnEncoder(nn.Module):
             self.cnn_input_size = self.hidden_size
         else:
             self.use_pre_encoder = False
-            self.cnn_input_size = 2
+            self.cnn_input_size = self.input_size
     
         if hparams.use_res:
             module = Res_1d 
@@ -177,9 +178,9 @@ class ContextAttention(nn.Module):
 
 
 
-class ConvNorm(nn.Module):
+class ConvNormForRes(nn.Module):
     def __init__(self, in_channels, out_channels, kernel_size):
-        super(ConvNorm, self).__init__()
+        super(ConvNormForRes, self).__init__()
         self.conv = nn.Conv2d(in_channels=in_channels, out_channels=out_channels, kernel_size=kernel_size, padding=(kernel_size-1) // 2, bias=False)
         self.bn = nn.BatchNorm2d(out_channels, eps=0.001, momentum=0.01)
         self.activation = nn.LeakyReLU(0.01)
@@ -197,10 +198,10 @@ class ConvNorm(nn.Module):
 class ResNet_Block(nn.Module):
     def __init__(self, num_input_ch, num_channels):
         super(ResNet_Block, self).__init__()
-        self.conv1 = ConvNorm(num_input_ch, num_channels, 1)
-        self.conv2 = ConvNorm(num_channels, num_channels, 3)
-        self.conv3 = ConvNorm(num_channels, num_channels, 3)
-        self.conv4 = ConvNorm(num_channels, num_channels, 1)
+        self.conv1 = ConvNormForRes(num_input_ch, num_channels, 1)
+        self.conv2 = ConvNormForRes(num_channels, num_channels, 3)
+        self.conv3 = ConvNormForRes(num_channels, num_channels, 3)
+        self.conv4 = ConvNormForRes(num_channels, num_channels, 1)
         
     def cal_conv(self,x):
         return self.conv4(self.conv3(self.conv2(self.conv1(x))))
@@ -234,13 +235,14 @@ class Melody_ResNet(nn.Module):
         num_output = int(55 * 2 ** (math.log(8, 2)) + 2)
         self.final = nn.Linear(512,num_output)
 
+
     def forward(self, input):
         block = self.block(input) # channel first for torch
         numOutput_P = block.shape[1] * block.shape[3]
         reshape_out = block.permute(0,2,3,1).reshape(block.shape[0], 31, numOutput_P)
         lstm_out, _ = self.lstm(reshape_out)
-        return lstm_out
-
+        melody_out = self.final(lstm_out)
+        return  melody_out, lstm_out
 
 
 class CombinedModel(nn.Module):
@@ -249,13 +251,27 @@ class CombinedModel(nn.Module):
         self.contour_encoder = CnnEncoder(hparams)
         self.singing_voice_estimator = Melody_ResNet()
         self.audio_encoder = CnnEncoder(hparams_b)
+        self.embed_size = hparams.embed_size
 
-    def forward(self, audio_input, contour_input):
-        singing_voice_hidden_result = self.singing_voice_estimator(audio_input)
-        audio_embedding = self.audio_encoder(singing_voice_hidden_result)
-        contour_embedding = self.contour_encoder(contour_input)
+        self.singing_voice_estimator.load_state_dict(torch.load('/home/svcapp/userdata/dev/melodyExtraction_SSL/weights/torch_weights.pt'))
+        for param in  self.singing_voice_estimator.parameters():
+            param.requires_grad = False
 
-        return 
+    def forward(self, audio_input, num_batch):
+        _, voice_hidden = self.singing_voice_estimator(audio_input)
+        voice_hidden_batch = voice_hidden.reshape(num_batch, -1, voice_hidden.shape[-1])
+        voice_hidden_batch = torch.nn.functional.max_pool1d(voice_hidden_batch.permute(0,2,1), kernel_size=10).permute(0,2,1)
+        audio_embedding = self.audio_encoder(voice_hidden_batch)
+        return audio_embedding
 
-    def siamese(self, audio_anchor, contour_pos, audio_neg):
-        return siamese 
+    def siamese(self, audio_anchor, contour_pos_n_neg, num_batch, num_pos):
+        # audio = torch.cat([audio_anchor, audio_neg], dim=0)
+        _, voice_hidden = self.singing_voice_estimator(audio_anchor)
+        voice_hidden_batch = voice_hidden.reshape(num_batch, -1, voice_hidden.shape[-1])
+        voice_hidden_batch = torch.nn.functional.max_pool1d(voice_hidden_batch.permute(0,2,1), kernel_size=10).permute(0,2,1)
+
+        audio_embedding = self.audio_encoder(voice_hidden_batch)
+        contour_embedding = self.contour_encoder(contour_pos_n_neg)
+        contour_embedding = contour_embedding.view(num_batch, -1 , contour_embedding.shape[-1])
+
+        return audio_embedding, contour_embedding[:,:num_pos], contour_embedding[:,num_pos:]
