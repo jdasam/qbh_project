@@ -177,9 +177,9 @@ class ContextAttention(nn.Module):
 
 
 
-class ConvNorm(nn.Module):
+class ConvNormForRes(nn.Module):
     def __init__(self, in_channels, out_channels, kernel_size):
-        super(ConvNorm, self).__init__()
+        super(ConvNormForRes, self).__init__()
         self.conv = nn.Conv2d(in_channels=in_channels, out_channels=out_channels, kernel_size=kernel_size, padding=(kernel_size-1) // 2, bias=False)
         self.bn = nn.BatchNorm2d(out_channels, eps=0.001, momentum=0.01)
         self.activation = nn.LeakyReLU(0.01)
@@ -197,10 +197,10 @@ class ConvNorm(nn.Module):
 class ResNet_Block(nn.Module):
     def __init__(self, num_input_ch, num_channels):
         super(ResNet_Block, self).__init__()
-        self.conv1 = ConvNorm(num_input_ch, num_channels, 1)
-        self.conv2 = ConvNorm(num_channels, num_channels, 3)
-        self.conv3 = ConvNorm(num_channels, num_channels, 3)
-        self.conv4 = ConvNorm(num_channels, num_channels, 1)
+        self.conv1 = ConvNormForRes(num_input_ch, num_channels, 1)
+        self.conv2 = ConvNormForRes(num_channels, num_channels, 3)
+        self.conv3 = ConvNormForRes(num_channels, num_channels, 3)
+        self.conv4 = ConvNormForRes(num_channels, num_channels, 1)
         
     def cal_conv(self,x):
         return self.conv4(self.conv3(self.conv2(self.conv1(x))))

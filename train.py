@@ -66,6 +66,7 @@ def prepare_dataloaders(hparams, valid_only=False):
     with open('flo_metadata.dat', 'rb') as f:
         metadata = pickle.load(f)
     selected_genres = [4, 12, 13, 17, 10, 7,15, 11, 9]
+    # selected_genres = [4]
     with open('humm_db_ids.dat', 'rb') as f:
         humm_ids = pickle.load(f)
 

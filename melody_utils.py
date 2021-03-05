@@ -175,9 +175,9 @@ class MelodyLoader:
     
     def get_overlapped_contours(self, path, win_size=2000, hop_size=500, min_ratio=0.5):
         contour = load_melody(path)
-        melody_form = pitch_array_to_formatted(np.asarray(contour))
+        melody_form = scale_to_midi(np.asarray(contour))
+        melody_form = pitch_array_to_formatted(melody_form)
         # melody_ds = downsample_contour(contour)
-        melody_form = scale_to_midi(melody_form)
         slice_pos = list(range(0, melody_form.shape[0] - win_size, hop_size))
         slice_pos.append(melody_form.shape[0] - win_size)
         array_overlapped = np.asarray([melody_form[i:i+win_size] for i in slice_pos])
@@ -424,8 +424,11 @@ def quantizing_hz(contour, to_midi=False, quantization=True):
     return [quantize_or_return_zero(x) for x in contour]
 
 def scale_to_midi(contour):
-    contour[contour[:,1]==1,0] = np.log2(contour[contour[:,1]==1,0] / 440) * 12 + 69
-    return contour
+    # contour[contour[:,1]==1,0] = np.log2(contour[contour[:,1]==1,0] / 440) * 12 + 69
+    is_pitch = np.nonzero(contour)
+    contour_array = np.copy(contour)
+    contour_array[is_pitch] = np.log2(contour_array[is_pitch] / 440) * 12 + 69
+    return contour_array
 
 def load_melody(path):
     with open(path, "r") as f:
