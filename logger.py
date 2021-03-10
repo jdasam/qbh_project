@@ -19,3 +19,9 @@ class Logger(SummaryWriter):
         for tag, value in model.named_parameters():
             tag = tag.replace('.', '/')
             self.add_histogram(tag, value.data.cpu().numpy(), iteration)
+
+    def log_validation_loss(self, valid_loss, model, iteration):
+        self.add_scalar("validation_loss", valid_loss, iteration)
+        for tag, value in model.named_parameters():
+            tag = tag.replace('.', '/')
+            self.add_histogram(tag, value.data.cpu().numpy(), iteration)

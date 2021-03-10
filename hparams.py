@@ -76,6 +76,8 @@ class HParams:
         self.is_scheduled = False
         self.get_valid_by_aug = False
 
+        self.sample_rate = 8000
+
         self.grad_clip_thresh=1.0
         self.num_workers = 4
         self.batch_size = 8

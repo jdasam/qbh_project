@@ -21,10 +21,12 @@ from data_utils import AudioOnlySet, get_song_ids_of_selected_genre, AudioSpecCo
 from torch.optim.lr_scheduler import StepLR
 from logger import Logger
 from hparams import HParams
+from loss_function import cross_entropy
+from melody_estimation import model_prediction_to_pitch, elongate_result
 
 from metalearner.common.config import experiment, worker
 from metalearner.api import scalars
-
+from torch.nn import CrossEntropyLoss
         
 def prepare_dataloaders(hparams):
     # Get data, data loaders and collate function ready
@@ -116,42 +118,40 @@ def convert_hparams_to_string(hparams):
     return out_string
 
 
-def validate(model, val_loader, entire_loader, logger, epoch, iteration, hparams, record_key="validation_score"):
+def validate(model, teacher_model, val_loader, criterion, logger, epoch, iteration, hparams):
     """Handles all the validation scoring and printing"""
     model.eval()
-    valid_score = {}
+    valid_loss = {'loss':[], 'agreement':[]}
     with torch.no_grad():
-        total_embs, total_song_ids = get_contour_embeddings(model, entire_loader)
-        valid_score[record_key] = cal_ndcg_of_loader(model, val_loader, total_embs, total_song_ids)
-        # for j, batch in enumerate(tqdm(val_loader)):
-        if hparams.get_valid_by_aug:
-            aug_keys = [x for x in val_loader.dataset.aug_keys]
-            for key in aug_keys:
-                val_loader.dataset.aug_keys = [key]
-                valid_score_of_key = cal_ndcg_of_loader(model, val_loader, total_embs, total_song_ids)
-                valid_score[key] = valid_score_of_key
-            val_loader.dataset.aug_keys = aug_keys
+        for _, batch in enumerate(val_loader):
+            # batch = batch.cuda()
+            audio, spec_10 = batch
+            audio = audio.to('cuda')
+            spec_10 = spec_10.to('cuda')
+            spec_100 = model.spec_layer(audio)
+            spec_100 = torch.log10(spec_100 + 1e-10)
+            spec_100 = spec_100.permute(0,2,1).unsqueeze(1)
+            train_result, _ = model(spec_100)
+            teacher_result, _ = teacher_model(spec_10)
+            teacher_result = teacher_result.view(spec_100.shape[0], -1, teacher_result.shape[2]).view(spec_100.shape[0], -1, 10, teacher_result.shape[2])
+            loss = criterion(train_result, torch.mean(teacher_result, dim=2))
+            train_melody = elongate_result(model_prediction_to_pitch(train_result.cpu().numpy()))
+            teacher_melody = model_prediction_to_pitch(teacher_result.cpu().view(train_result.shape[0], -1, train_result.shape[2]).numpy())
+            agreement = np.mean(train_melody==teacher_melody)
+
+            valid_loss['loss'].append(loss.item())
+            valid_loss['agreement'].append(agreement.item())
     model.train()
-    if len(valid_score) == 1:
-        print("Valdiation nDCG {}: {:5f} ".format(iteration, valid_score[record_key]))
-    else:
-        score_string = "Valdiation nDCG {}: {:5f} ".format(iteration, valid_score[record_key])
-        for key in valid_score.keys():
-            score_string += "/ {}: {:5f}".format(key, valid_score[key])
-        print(score_string)
-    # if 'siamese' in hparams.model_code:
-    #     print("Validation loss {}: {:9f}  ".format(iteration, valid_ndcg))
-    # else:
-    #     print("Valdiation Score {}: {:5f} ".format(iteration, valid_ndcg))
-    #     valid_ndcg = -valid_ndcg
-    # audio_sample = valset.convert_spec_to_wav(y_pred.squeeze(0).cpu().numpy())
+    for key in valid_loss.keys():
+        valid_loss[key] = sum(valid_loss[key])/len(valid_loss[key])
+    print("Valdiation loss {}: {:5f} ".format(iteration,valid_loss['loss']))
     if hparams.in_meta:
         # results = {'validation_score': valid_score}
-        response = scalars.send_valid_result(worker.id, epoch, iteration, valid_score)
+        response = scalars.send_valid_result(worker.id, epoch, iteration, valid_loss)
     else:
-        logger.log_validation(valid_score, model, iteration)
+        logger.log_validation(valid_loss, model, iteration)
 
-    return valid_score[record_key]
+    return valid_loss['agreement']
 
 def train(output_directory, log_directory, checkpoint_path, hparams):
     """Training and validation logging results to tensorboard and stdout
@@ -197,7 +197,8 @@ def train(output_directory, log_directory, checkpoint_path, hparams):
                        gamma=hparams.learning_rate_decay_rate)
     model.train()
     teacher_model.eval()
-    criterion = torch.nn.CrossEntropyLoss()
+    # criterion = torch.nn.CrossEntropyLoss()
+    criterion = cross_entropy
     best_valid_score = 0
     # ================ MAIN TRAINNIG LOOP! ===================
     for epoch in range(epoch_offset, hparams.epochs):
@@ -216,7 +217,7 @@ def train(output_directory, log_directory, checkpoint_path, hparams):
             with torch.no_grad():
                 teacher_result, _ = teacher_model(spec_10)
             teacher_result = teacher_result.view(spec_100.shape[0], -1, teacher_result.shape[2]).view(spec_100.shape[0], -1, 10, teacher_result.shape[2])
-            loss = criterion(train_result.permute(0,2,1), torch.mean(teacher_result, dim=2).permute(0,2,1))
+            loss = criterion(train_result, torch.mean(teacher_result, dim=2))
             reduced_loss = loss.item()
             loss.backward()
             grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), hparams.grad_clip_thresh)
@@ -230,9 +231,8 @@ def train(output_directory, log_directory, checkpoint_path, hparams):
                 logger.log_training(
                     reduced_loss, grad_norm.item(), learning_rate, duration, iteration)
 
-
             if iteration % hparams.iters_per_checkpoint == 1: # and not iteration==0:
-                valid_score = validate(model, val_loader, entire_loader, logger, epoch, iteration, hparams)
+                valid_score = validate(model,teacher_model, val_loader, criterion, logger, epoch, iteration, hparams)
                 fine_tune_model = model
                 is_best = valid_score > best_valid_score
                 best_valid_score = max(valid_score, best_valid_score)
@@ -245,8 +245,6 @@ def train(output_directory, log_directory, checkpoint_path, hparams):
                     save_checkpoint(fine_tune_model, optimizer, learning_rate, iteration,
                                     checkpoint_path)
                 # torch.cuda.empty_cache()
-
-
             iteration += 1
         # train_loader.dataset.min_aug = 1 + iteration // 75000
 

@@ -16,6 +16,7 @@ from segmentation_utils import find_melody_seg_fast
 from melody_utils import MelodyLoader
 import librosa
 from madmom.audio.signal import Signal
+import time
 # from pydub import AudioSegment
 
 class ContourSet:
@@ -263,19 +264,63 @@ def pad_collate(batch):
     seq = [torch.Tensor(x) for x in batch]
     return torch.nn.utils.rnn.pad_sequence(seq, batch_first=True)
 
+class HummingAudioSet(HummingPairSet):
+    def __init__(self, path, contour_pairs, aug_weights, set_type, aug_keys, num_aug_samples=4, num_neg_samples=4, sample_rate=8000):
+        super(HummingAudioSet, self).__init__(contour_pairs, aug_weights, set_type, aug_keys, num_aug_samples=num_aug_samples, num_neg_samples=num_neg_samples)
+        self.sample_rate = sample_rate
+        self.path = Path(path)
+
+
+    def load_audio(self, song_id, time_stamp):
+        audio_path = song_id_to_audio_path(self.path, song_id)
+        audio_samples = load_audio_sample(audio_path, self.sample_rate)
+        return audio_samples[time_stamp[0]*self.sample_rate:time_stamp[1]*self.sample_rate]
+    
+    def __getitem__(self, index):
+        """
+        for training:
+        return: (downsampled_melody, [augmented_melodies], [negative_sampled_melodies])
+        for validation:
+        return: ([augmented_melodies], [selected_song_id])
+        """
+        selected_melody = self.contours[index]['humm']
+        # original_melody = self.contours[index]['orig']
+        selected_song_id = self.contours[index]['meta']['track_id']
+        # orig_ds_melody = downsample_contour_array(original_melody)
+        orig_sample = self.load_audio(selected_song_id, [int(x) for x in self.contours[index]['meta']['time_stamp'].split('-')])
+
+        aug_samples = []
+        neg_samples = []
+        
+        if self.set_type == 'valid' or self.set_type == 'test':
+            downsampled_melody = downsample_contour_array(selected_melody)
+            return downsampled_melody, selected_song_id
+            # return [downsampled_melody] * len(aug_samples), [selected_song_id] * len(aug_samples)
+        
+        aug_samples = [self.melody_augmentor(selected_melody,self.aug_keys) for i in range(self.num_aug_samples)]
+        
+        # sampling negative melodies
+        while len(neg_samples) < self.num_neg_samples:
+            neg_idx = random.randint(0, len(self)-1)
+            if self.contours[neg_idx]['meta']['track_id'] != selected_song_id:
+                neg_samples.append(downsample_contour_array(self.contours[neg_idx]['humm'], self.down_f))
+        return orig_sample, aug_samples, neg_samples
+
 
 class AudioSet(WindowedContourSet):
-    def __init__(self, path, aug_weights, song_ids=[], num_aug_samples=4, num_neg_samples=4, quantized=True, pre_load=False, pre_load_data=None, set_type='entire', min_aug=1, min_vocal_ratio=0.5):
+    def __init__(self, path, aug_weights, song_ids=[], num_aug_samples=4, num_neg_samples=4, quantized=True, pre_load=False, pre_load_data=None, set_type='entire', min_aug=1, min_vocal_ratio=0.5, sample_rate=8000):
         super(AudioSet, self).__init__(path, aug_weights, song_ids, num_aug_samples, num_neg_samples, quantized, pre_load, pre_load_data, set_type, min_aug, min_vocal_ratio)
-        self.x_train_mean = np.load('x_data_mean_total_31.npy')
-        self.x_train_std = np.load('x_data_std_total_31.npy')
+        self.sample_rate = sample_rate
+        # self.x_train_mean = np.load('x_data_mean_total_31.npy')
+        # self.x_train_std = np.load('x_data_std_total_31.npy')
 
     def load_audio(self, song_id, frame_pos):
         audio_path = song_id_to_audio_path(self.path, song_id)
-        x_test, x_spec = load_audio_and_get_spec(audio_path, frame_pos)
-        x_test = (x_test-self.x_train_mean)/(self.x_train_std+0.0001)
-        x_test = x_test[:, :, :, np.newaxis]
-        return x_test
+        audio_samples = load_audio_sample(audio_path, self.sample_rate)
+        # x_test, x_spec = load_audio_and_get_spec(audio_path, frame_pos)
+        # x_test = (x_test-self.x_train_mean)/(self.x_train_std+0.0001)
+        # x_test = x_test[:, :, :, np.newaxis]
+        return audio_samples[frame_pos[0]//100*self.sample_rate:frame_pos[1]//100*self.sample_rate]
     
 
     def __getitem__(self, index):
@@ -405,10 +450,22 @@ class AudioContourCollate:
     def to_tensor_list(self, alist):
         return [torch.Tensor(x) for x in alist]
 
+    def make_tensor_with_auto_pad(self, alist):
+        max_length = max([len(x) for x in alist])
+        dummy = torch.zeros(len(alist), max_length)
+        for i in range(len(alist)):
+            seq = alist[i]
+            left_margin = (max_length - seq.shape[0]) // 2
+            dummy[i,left_margin:left_margin+seq.shape[0]] = seq
+        return dummy
+
+
     def __call__(self, batch):
         # batch: [(audio_anchor, positive_contour, negative_contour) ]* num_batch
-        anchor_audio = torch.Tensor([x[0] for x in batch])
-        anchor_audio.requires_grad = False
+        # anchor_audio = torch.Tensor([x[0] for x in batch])
+        anchor_audio = [torch.Tensor(np.copy(x[0])) for x in batch]
+        anchor_audio = self.make_tensor_with_auto_pad(anchor_audio)
+
         total = [self.to_tensor_list(x[1]) + self.to_tensor_list(x[2]) for x in batch ]
         total_flattened = [y for x in total for y in x]
         max_length = max([len(x) for x in total_flattened])
@@ -485,15 +542,20 @@ class AudioOnlySet:
         for validation:
         return: ([augmented_melodies], [selected_song_id])
         """
+        times = [time.time()]
         selected_song = self.songs[index]
         # downsampled_melody = downsample_contour_array(selected_melody)
         audio_path = song_id_to_audio_path(self.path, selected_song)
         audio_samples = load_audio_sample(audio_path, self.sample_rate)
+        times.append(time.time())
         slice_pos = random.randint(0, len(audio_samples)-1-self.slice_samples)
         audio_sliced = audio_samples[slice_pos:slice_pos + self.slice_samples]
         
         spec_10 = get_spec_with_librosa(audio_sliced)
+        times.append(time.time())
         spec_10 = self.spec_to_slice_norm(spec_10, self.win_size)
+        times.append(time.time())
+        print(f'load file:{times[1]-times[0]}, get_spec:{times[2]-times[1]}, norm:{times[3]-times[2]}')
         return audio_sliced, spec_10
 
 class AudioSpecCollate:

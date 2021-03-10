@@ -4,9 +4,9 @@ import math
 
 def cross_entropy(pred, target):
     # return torch.sum( -target * torch.log(pred + 1e-5)) / torch.sum(target)
-    pos_term = -target * torch.log(pred + 1e-5) * torch.sum(1-target, dim=1).unsqueeze(1)
-    neg_term = -(1-target) * torch.log(1-pred + 1e-5) * torch.sum(target, dim=1).unsqueeze(1)
-    return torch.mean(pos_term + neg_term)
+    pos_term = -target * torch.log(pred + 1e-5)
+    neg_term = -(1-target) * torch.log(1-pred + 1e-5)
+    return torch.mean(torch.sum(pos_term + neg_term, dim=-1))
 
 
 class SiameseLoss:
