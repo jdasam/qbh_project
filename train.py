@@ -260,8 +260,8 @@ def train(output_directory, log_directory, checkpoint_path, hparams):
     logger = prepare_directories_and_logger(output_directory, log_directory)
     
     if hparams.combined_training:
-        train_loader, val_loader, _ = prepare_dataloaders(hparams)
-        humm_train_loader, humm_val_loader, entire_loader, = prepare_humming_db_loaders(hparams)
+        train_loader, val_loader, entire_loader = prepare_dataloaders(hparams)
+        humm_train_loader, humm_val_loader, _ = prepare_humming_db_loaders(hparams)
     elif hparams.train_on_humming:
         train_loader, val_loader, entire_loader, = prepare_humming_db_loaders(hparams)
     else:
