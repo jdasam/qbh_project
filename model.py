@@ -276,16 +276,32 @@ class CombinedModel(nn.Module):
         self.singing_voice_estimator = Melody_ResNet_with_Spec()
         self.audio_encoder = CnnEncoder(hparams_b)
         self.embed_size = hparams.embed_size
-        # for param in  self.singing_voice_estimator.parameters():
-        #     param.requires_grad = False
 
-    def forward(self, audio_input, num_batch):
-        _, voice_hidden = self.singing_voice_estimator(audio_input)
-        voice_hidden_batch = voice_hidden.reshape(num_batch, -1, voice_hidden.shape[-1])
-        voice_hidden_batch = torch.nn.functional.max_pool1d(voice_hidden_batch.permute(0,2,1), kernel_size=10).permute(0,2,1)
-        audio_embedding = self.audio_encoder(voice_hidden_batch)
-        return audio_embedding
+    def forward(self, input, num_pos=0, num_neg=0, siamese=False, contour_only=False):
+        if siamese:
+            audio_input, contour_pos_n_neg = input
+            num_batch = audio_input.shape[0] // (num_neg+1)
+            _, voice_hidden = self.singing_voice_estimator(audio_input)
+            voice_hidden_batch = voice_hidden.reshape(num_batch, -1, voice_hidden.shape[-1])
+            # voice_hidden_batch = torch.nn.functional.max_pool1d(voice_hidden_batch.permute(0,2,1), kernel_size=10).permute(0,2,1)
 
+            audio_embedding = self.audio_encoder(voice_hidden_batch)
+            audio_embedding = audio_embedding.view(num_batch, -1, audio_embedding.shape[-1])
+            contour_embedding = self.contour_encoder(contour_pos_n_neg)
+            contour_embedding = contour_embedding.view(num_batch, -1 , contour_embedding.shape[-1])
+
+            return audio_embedding[:,0], contour_embedding[:,:num_pos], torch.cat( [audio_embedding[:,1:], contour_embedding[:,num_pos:]], dim=1)
+        elif contour_only:
+            return self.contour_encoder(input)
+        else:
+            audio_input = input
+            num_batch = audio_input.shape[0] // (num_neg+1)
+            _, voice_hidden = self.singing_voice_estimator(audio_input)
+            voice_hidden_batch = voice_hidden.reshape(num_batch, -1, voice_hidden.shape[-1])
+            # voice_hidden_batch = torch.nn.functional.max_pool1d(voice_hidden_batch.permute(0,2,1), kernel_size=10).permute(0,2,1)
+            audio_embedding = self.audio_encoder(voice_hidden_batch)
+            return audio_embedding
+        
     def siamese(self, audio_anchor, contour_pos_n_neg, num_batch, num_pos):
         # audio = torch.cat([audio_anchor, audio_neg], dim=0)
         _, voice_hidden = self.singing_voice_estimator(audio_anchor)
@@ -293,7 +309,8 @@ class CombinedModel(nn.Module):
         # voice_hidden_batch = torch.nn.functional.max_pool1d(voice_hidden_batch.permute(0,2,1), kernel_size=10).permute(0,2,1)
 
         audio_embedding = self.audio_encoder(voice_hidden_batch)
+        audio_embedding = audio_embedding.view(num_batch, -1, audio_embedding.shape[-1])
         contour_embedding = self.contour_encoder(contour_pos_n_neg)
         contour_embedding = contour_embedding.view(num_batch, -1 , contour_embedding.shape[-1])
 
-        return audio_embedding, contour_embedding[:,:num_pos], contour_embedding[:,num_pos:]
+        return audio_embedding[:,0], contour_embedding[:,:num_pos], torch.cat( [audio_embedding[:,1:], contour_embedding[:,num_pos:]], dim=1)

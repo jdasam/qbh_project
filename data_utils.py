@@ -287,24 +287,28 @@ class HummingAudioSet(HummingPairSet):
         # original_melody = self.contours[index]['orig']
         selected_song_id = self.contours[index]['meta']['track_id']
         # orig_ds_melody = downsample_contour_array(original_melody)
+        downsampled_melody = downsample_contour_array(selected_melody)
         orig_sample = self.load_audio(selected_song_id, [int(x) for x in self.contours[index]['meta']['time_stamp'].split('-')])
 
         aug_samples = []
         neg_samples = []
+        neg_audio_samples = []
         
         if self.set_type == 'valid' or self.set_type == 'test':
-            downsampled_melody = downsample_contour_array(selected_melody)
             return downsampled_melody, selected_song_id
             # return [downsampled_melody] * len(aug_samples), [selected_song_id] * len(aug_samples)
         
-        aug_samples = [self.melody_augmentor(selected_melody,self.aug_keys) for i in range(self.num_aug_samples)]
-        
+        aug_samples = [self.melody_augmentor(selected_melody,self.aug_keys) for i in range(self.num_aug_samples-1)]
+        aug_samples = [downsampled_melody] + aug_samples
+
         # sampling negative melodies
         while len(neg_samples) < self.num_neg_samples:
             neg_idx = random.randint(0, len(self)-1)
             if self.contours[neg_idx]['meta']['track_id'] != selected_song_id:
                 neg_samples.append(downsample_contour_array(self.contours[neg_idx]['humm'], self.down_f))
-        return orig_sample, aug_samples, neg_samples
+                neg_audio_samples.append(self.load_audio(self.contours[neg_idx]['meta']['track_id'], [int(x) for x in self.contours[neg_idx]['meta']['time_stamp'].split('-')]))
+
+        return orig_sample, neg_audio_samples, aug_samples, neg_samples
 
 
 class AudioSet(WindowedContourSet):
@@ -333,7 +337,7 @@ class AudioSet(WindowedContourSet):
         selected_melody = self.contours[index]['contour']
         selected_song_id = self.contours[index]['song_id']
         selected_frame = self.contours[index]['frame_pos']
-        # downsampled_melody = downsample_contour_array(selected_melody)
+        downsampled_melody = downsample_contour_array(selected_melody)
         if self.set_type != "valid":
             original_audio = self.load_audio(selected_song_id, selected_frame)
 
@@ -342,12 +346,13 @@ class AudioSet(WindowedContourSet):
 
         aug_samples = []
         neg_samples = []
+        neg_audio_samples = []
         
         if self.min_aug < len(self.aug_keys):
-            aug_samples = [self.melody_augmentor(selected_melody, random.sample(self.aug_keys, random.randint(self.min_aug,len(self.aug_keys)))) for i in range(self.num_aug_samples)]
+            aug_samples = [self.melody_augmentor(selected_melody, random.sample(self.aug_keys, random.randint(self.min_aug,len(self.aug_keys)))) for i in range(self.num_aug_samples-1)]
         else:
-            aug_samples = [self.melody_augmentor(selected_melody, self.aug_keys) for i in range(self.num_aug_samples)]
-        
+            aug_samples = [self.melody_augmentor(selected_melody, self.aug_keys) for i in range(self.num_aug_samples-1)]
+        aug_samples = [downsampled_melody] + aug_samples
         if self.set_type == 'valid':
             return aug_samples, [selected_song_id] * len(aug_samples)
             # return [downsampled_melody] * len(aug_samples), [selected_song_id] * len(aug_samples)
@@ -357,7 +362,10 @@ class AudioSet(WindowedContourSet):
             neg_idx = random.randint(0, len(self)-1)
             if self.contours[neg_idx]['song_id'] != selected_song_id:
                 neg_samples.append(downsample_contour_array(self.contours[neg_idx]['contour'], self.down_f))
-        return original_audio, aug_samples, neg_samples
+                neg_audio_samples.append(self.load_audio(self.contours[neg_idx]['song_id'], self.contours[neg_idx]['frame_pos']))
+                # neg_samples.append(self.contours[neg_idx]['song_id'])
+
+        return original_audio, neg_audio_samples, aug_samples, neg_samples
 
         
 
@@ -463,10 +471,11 @@ class AudioContourCollate:
     def __call__(self, batch):
         # batch: [(audio_anchor, positive_contour, negative_contour) ]* num_batch
         # anchor_audio = torch.Tensor([x[0] for x in batch])
-        anchor_audio = [torch.Tensor(np.copy(x[0])) for x in batch]
-        anchor_audio = self.make_tensor_with_auto_pad(anchor_audio)
+        anchor_and_neg_audio = [ [torch.Tensor(np.copy(x[0]))] + self.to_tensor_list(x[1]) for x in batch]
+        anchor_and_neg_audio = [y for x in anchor_and_neg_audio for y in x]
+        anchor_and_neg_audio = self.make_tensor_with_auto_pad(anchor_and_neg_audio)
 
-        total = [self.to_tensor_list(x[1]) + self.to_tensor_list(x[2]) for x in batch ]
+        total = [self.to_tensor_list(x[2]) + self.to_tensor_list(x[3]) for x in batch ]
         total_flattened = [y for x in total for y in x]
         max_length = max([len(x) for x in total_flattened])
         dummy = torch.zeros(len(total_flattened), max_length, 2)
@@ -474,7 +483,7 @@ class AudioContourCollate:
             seq = total_flattened[i]
             left_margin = (max_length - seq.shape[0]) // 2
             dummy[i,left_margin:left_margin+seq.shape[0],:] = seq
-        return anchor_audio, dummy
+        return anchor_and_neg_audio, dummy
 
 class AudioCollate:
     def __call__(self, batch):
@@ -482,7 +491,7 @@ class AudioCollate:
         song_ids = torch.LongTensor([x[1] for x in batch])
 
         max_length = max([len(x) for x in out])
-        dummy = torch.zeros(len(out), max_length, out[0].shape[1], out[0].shape[2], 1)
+        dummy = torch.zeros(len(out), max_length)
         for i in range(len(out)):
             seq = out[i]
             left_margin = (max_length - seq.shape[0]) // 2
@@ -542,20 +551,21 @@ class AudioOnlySet:
         for validation:
         return: ([augmented_melodies], [selected_song_id])
         """
-        times = [time.time()]
+        # times = [time.time()]
         selected_song = self.songs[index]
         # downsampled_melody = downsample_contour_array(selected_melody)
         audio_path = song_id_to_audio_path(self.path, selected_song)
         audio_samples = load_audio_sample(audio_path, self.sample_rate)
-        times.append(time.time())
+        # times.append(time.time())
+        # print('len audio samples: ', len(audio_samples))
         slice_pos = random.randint(0, len(audio_samples)-1-self.slice_samples)
         audio_sliced = audio_samples[slice_pos:slice_pos + self.slice_samples]
         
         spec_10 = get_spec_with_librosa(audio_sliced)
-        times.append(time.time())
+        # times.append(time.time())
         spec_10 = self.spec_to_slice_norm(spec_10, self.win_size)
-        times.append(time.time())
-        print(f'load file:{times[1]-times[0]}, get_spec:{times[2]-times[1]}, norm:{times[3]-times[2]}')
+        # times.append(time.time())
+        # print(f'load file:{times[1]-times[0]}, get_spec:{times[2]-times[1]}, norm:{times[3]-times[2]}')
         return audio_sliced, spec_10
 
 class AudioSpecCollate:
@@ -651,8 +661,22 @@ def song_id_to_audio_path(path, song_id):
 
 
 def load_audio_sample(path, sr=8000):
-    y = Signal(str(path), sample_rate=sr, dtype=np.float32, num_channels=1)
-    return y
+    npy_path = path.with_suffix('.npy')
+    if npy_path.exists():
+        try:
+            y = np.load(npy_path)
+        except:
+            print(f"error occurned on {npy_path}")
+            y = Signal(str(path), sample_rate=sr, dtype=np.float32, num_channels=1)
+            np.save(npy_path, y, allow_pickle=False)
+    else:
+        y = Signal(str(path), sample_rate=sr, dtype=np.float32, num_channels=1)
+        np.save(npy_path, y, allow_pickle=False)
+    if len(y)==128:
+        y = Signal(str(path), sample_rate=sr, dtype=np.float32, num_channels=1)
+        np.save(npy_path, y, allow_pickle=False)
+        print(path, npy_path)
+    return np.copy(y)
 
 def get_spec_with_librosa(y):
     S = librosa.core.stft(y, n_fft=1024, hop_length=80*1, win_length=1024)

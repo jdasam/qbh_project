@@ -42,7 +42,7 @@ def prepare_humming_db_loaders(hparams, return_test=False):
     train_loader = DataLoader(train_set, hparams.batch_size, shuffle=True,num_workers=hparams.num_workers,
         collate_fn=AudioContourCollate(), pin_memory=True)
     valid_loader = DataLoader(valid_set, hparams.valid_batch_size, shuffle=False,num_workers=hparams.num_workers,
-        collate_fn=AudioCollate(), pin_memory=True, drop_last=False)
+        collate_fn=ContourCollate(0, 0, for_cnn=True), pin_memory=True, drop_last=False)
     # test_loader = DataLoader(test_set, hparams.valid_batch_size, shuffle=False,num_workers=hparams.num_workers,
     #     collate_fn=ContourCollate(0, 0, for_cnn=True), pin_memory=True, drop_last=False)
     with open(hparams.contour_path, 'rb') as f:
@@ -65,14 +65,14 @@ def prepare_dataloaders(hparams, valid_only=False):
     # Get data, data loaders and collate function ready
     with open('flo_metadata.dat', 'rb') as f:
         metadata = pickle.load(f)
-    # selected_genres = [4, 12, 13, 17, 10, 7,15, 11, 9]
-    selected_genres= [4]
+    selected_genres = [4, 12, 13, 17, 10, 7,15, 11, 9]
+    # selected_genres= [4]
     with open('humm_db_ids.dat', 'rb') as f:
         humm_ids = pickle.load(f)
 
     song_ids = get_song_ids_of_selected_genre(metadata, selected_genre=selected_genres)
     song_ids += humm_ids
-    song_ids = humm_ids
+    # song_ids = humm_ids
     entireset = AudioSet(hparams.data_dir, aug_weights=[], song_ids=song_ids, set_type='entire', pre_load=False, num_aug_samples=0, num_neg_samples=0, min_vocal_ratio=hparams.min_vocal_ratio, sample_rate=hparams.sample_rate)
 
     # with open(hparams.contour_path, 'rb') as f:
@@ -114,9 +114,9 @@ def load_model(hparams, checkpoint_path):
     model = CombinedModel(hparams, hparams_b)
     model.singing_voice_estimator.load_state_dict(torch.load('/home/svcapp/userdata/flo_model/voice_estimator_0.0001_210308-184612/checkpoint_best.pt')['state_dict'])
     model.contour_encoder.load_state_dict(torch.load(checkpoint_path)['state_dict'])
-    model = model.cuda()
     if hparams.data_parallel:
         model = torch.nn.DataParallel(model)
+    model = model.cuda()
     return model
 
 def load_checkpoint(checkpoint_path, model, optimizer, train_on_humming=False):
@@ -191,12 +191,12 @@ def validate_classification_error(predicted, answer, threshold=0.6):
 def cal_ndcg_of_loader(model, val_loader, total_embs, total_song_ids):
     valid_score = 0
     for j, batch in enumerate(val_loader):
-        audio, song_ids = batch
+        contour, song_ids = batch
         # embeddings = model(contour.cuda())
-        num_batch = audio.shape[0]
-        audio = audio.view(audio.shape[0]*audio.shape[1], audio.shape[2], audio.shape[3], audio.shape[4])
-        audio = audio.permute(0,3,1,2)
-        anchor = model(audio.cuda(), num_batch)
+        # num_batch = audio.shape[0]
+        # audio = audio.view(audio.shape[0]*audio.shape[1], audio.shape[2], audio.shape[3], audio.shape[4])
+        # audio = audio.permute(0,3,1,2)
+        anchor = model(contour.cuda(), contour_only=True)
         anchor_norm = anchor / anchor.norm(dim=1)[:, None]
         similarity = torch.mm(anchor_norm, total_embs.transpose(0,1))
         recommends = torch.topk(similarity, k=hparams.num_recom, dim=-1)[1]
@@ -271,8 +271,8 @@ def train(output_directory, log_directory, checkpoint_path, hparams):
     logger = prepare_directories_and_logger(output_directory, log_directory)
     
     if hparams.combined_training:
-        train_loader, val_loader, _ = prepare_dataloaders(hparams)
-        humm_train_loader, humm_val_loader, entire_loader, = prepare_humming_db_loaders(hparams)
+        train_loader, val_loader, entire_loader = prepare_dataloaders(hparams)
+        humm_train_loader, humm_val_loader, _ = prepare_humming_db_loaders(hparams)
     elif hparams.train_on_humming:
         train_loader, val_loader, entire_loader, = prepare_humming_db_loaders(hparams)
     else:
@@ -308,10 +308,10 @@ def train(output_directory, log_directory, checkpoint_path, hparams):
             model.zero_grad()
             # batch = batch.cuda()
             audio_anchor, melody = batch
-            num_batch = audio_anchor.shape[0]
+            num_batch = audio_anchor.shape[0] // (train_loader.dataset.num_neg_samples + 1)
             audio_anchor = audio_anchor.to('cuda')
             melody = melody.to('cuda')
-            anchor, pos, neg = model.siamese(audio_anchor, melody, num_batch, train_loader.dataset.num_aug_samples)
+            anchor, pos, neg = model( (audio_anchor, melody), num_pos=train_loader.dataset.num_aug_samples, num_neg=train_loader.dataset.num_neg_samples, siamese=True)
             loss = criterion(anchor, pos, neg)
             reduced_loss = loss.item()
             loss.backward()
@@ -336,7 +336,7 @@ def train(output_directory, log_directory, checkpoint_path, hparams):
             #     optimizer.step()
 
 
-            if iteration % hparams.iters_per_checkpoint == 1: # and not iteration==0:
+            if iteration % hparams.iters_per_checkpoint == 0: # and not iteration==0:
                 if hparams.combined_training:
                     temp_check_path = output_directory / 'model_temp.pt'
                     save_checkpoint(model, optimizer, learning_rate, iteration, temp_check_path)
@@ -351,11 +351,10 @@ def train(output_directory, log_directory, checkpoint_path, hparams):
                         for batch in humm_train_loader:
                             fine_tune_model.zero_grad()
                             audio_anchor, melody = batch
-                            num_batch = audio_anchor.shape[0]
                             audio_anchor = audio_anchor.to('cuda')
                             melody = melody.to('cuda')
                             # batch = batch.cuda()
-                            anchor, pos, neg = fine_tune_model.siamese(audio_anchor, melody, num_batch, humm_train_loader.dataset.num_aug_samples)
+                            anchor, pos, neg = fine_tune_model( (audio_anchor, melody), num_pos=humm_train_loader.dataset.num_aug_samples, num_neg=humm_train_loader.dataset.num_neg_samples, siamese=True)
                             fine_loss = criterion(anchor, pos, neg)
                             fine_loss.backward()
                             torch.nn.utils.clip_grad_norm_(fine_tune_model.parameters(), hparams.grad_clip_thresh)
@@ -408,6 +407,9 @@ if __name__ == '__main__':
     parser.add_argument('--in_metalearner', type=lambda x: (str(x).lower() == 'true'), default=False, help='whether work in meta learner')
     parser.add_argument('--warm_start', action='store_true',
                         help='load model weights only, ignore specified layers')
+    parser.add_argument('--data_parallel', action='store_true',
+                    help='load model weights only, ignore specified layers')
+
     parser.add_argument('--hidden_size', type=int, required=False)        
     parser.add_argument('--embed_size', type=int, required=False)
     parser.add_argument('--kernel_size', type=int, required=False)

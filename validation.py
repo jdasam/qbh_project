@@ -26,7 +26,11 @@ def get_contour_embs_from_overlapped_contours(model, dataset, batch_size=128):
 
 def get_contour_embeddings(model, cmp_loader):
     # cmp_loader: loading entire trainset to calculate embedding of each piece
-    total_embs = torch.zeros([len(cmp_loader.dataset), model.embed_size]).to('cuda')
+    if hasattr(model, 'embed_size'):
+        embed_size = model.embed_size
+    else:
+        embed_size = model.module.embed_size
+    total_embs = torch.zeros([len(cmp_loader.dataset), embed_size]).to('cuda')
     total_song_ids = torch.zeros(len(cmp_loader.dataset),dtype=torch.long)
     current_idx = 0
     model.eval()
@@ -34,10 +38,8 @@ def get_contour_embeddings(model, cmp_loader):
         for batch in cmp_loader:
             audio, song_ids = batch
             # embeddings = model(contour.cuda())
-            num_batch = audio.shape[0]
-            audio = audio.view(audio.shape[0]*audio.shape[1], audio.shape[2], audio.shape[3], audio.shape[4])
-            audio = audio.permute(0,3,1,2)
-            embeddings = model(audio.cuda(), num_batch)
+            # num_batch = audio.shape[0]
+            embeddings = model(audio.cuda())
             num_samples = song_ids.shape[0]
             total_embs[current_idx:current_idx+num_samples,:] = embeddings / embeddings.norm(dim=1)[:,None]
             total_song_ids[current_idx:current_idx+num_samples] = song_ids

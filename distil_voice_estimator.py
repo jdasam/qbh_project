@@ -121,7 +121,7 @@ def convert_hparams_to_string(hparams):
 def validate(model, teacher_model, val_loader, criterion, logger, epoch, iteration, hparams):
     """Handles all the validation scoring and printing"""
     model.eval()
-    valid_loss = {'loss':[], 'agreement':[]}
+    valid_loss = {'loss':[], 'agreement':[], 'error_on_voice':[]}
     with torch.no_grad():
         for _, batch in enumerate(val_loader):
             # batch = batch.cuda()
@@ -138,9 +138,11 @@ def validate(model, teacher_model, val_loader, criterion, logger, epoch, iterati
             train_melody = elongate_result(model_prediction_to_pitch(train_result.cpu().numpy()))
             teacher_melody = model_prediction_to_pitch(teacher_result.cpu().view(train_result.shape[0], -1, train_result.shape[2]).numpy())
             agreement = np.mean(train_melody==teacher_melody)
+            error_on_voice = np.mean(np.abs(teacher_melody-train_melody)[teacher_melody!=0])
 
             valid_loss['loss'].append(loss.item())
             valid_loss['agreement'].append(agreement.item())
+            valid_loss['error_on_voice'].append(error_on_voice.item())
     model.train()
     for key in valid_loss.keys():
         valid_loss[key] = sum(valid_loss[key])/len(valid_loss[key])
