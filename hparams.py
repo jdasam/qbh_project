@@ -86,6 +86,7 @@ class HParams:
         self.loss_margin = 0.5
         self.min_vocal_ratio = 0.5
         self.use_euclid = False
+        self.use_elementwise_loss = True
         self.model_code='contour_scheduled'
         self.pos_loss_weight = 1e4
         self.num_neg_samples = 4

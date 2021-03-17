@@ -298,7 +298,7 @@ def train(output_directory, log_directory, checkpoint_path, hparams):
     scheduler = StepLR(optimizer, step_size=hparams.learning_rate_decay_steps,
                        gamma=hparams.learning_rate_decay_rate)
     model.train()
-    criterion = SiameseLoss(margin=hparams.loss_margin, use_euclid=hparams.use_euclid)
+    criterion = SiameseLoss(margin=hparams.loss_margin, use_euclid=hparams.use_euclid, use_elementwise=hparams.use_elementwise_loss)
     best_valid_score = 0
     # ================ MAIN TRAINNIG LOOP! ===================
     for epoch in range(epoch_offset, hparams.epochs):
@@ -336,7 +336,7 @@ def train(output_directory, log_directory, checkpoint_path, hparams):
             #     optimizer.step()
 
 
-            if iteration % hparams.iters_per_checkpoint == 0: # and not iteration==0:
+            if iteration % hparams.iters_per_checkpoint == 0 and not iteration==0:
                 if hparams.combined_training:
                     temp_check_path = output_directory / 'model_temp.pt'
                     save_checkpoint(model, optimizer, learning_rate, iteration, temp_check_path)
@@ -445,6 +445,7 @@ if __name__ == '__main__':
     parser.add_argument('--iters_per_humm_train', type=int)
     parser.add_argument('--combined_training', type=lambda x: (str(x).lower() == 'true'))
     parser.add_argument('--epoch_for_humm_train', type=int)
+    parser.add_argument('--use_elementwise_loss', type=lambda x: (str(x).lower() == 'true'))
 
     parser.add_argument('--add_abs_noise', type=lambda x: (str(x).lower() == 'true'))
     parser.add_argument('--add_smoothing', type=lambda x: (str(x).lower() == 'true'))
