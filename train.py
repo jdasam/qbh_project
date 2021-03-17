@@ -106,13 +106,13 @@ def prepare_directories_and_logger(output_directory, log_directory,):
     logger = Logger(output_directory / log_directory)
     return logger
 
-def load_model(hparams, checkpoint_path):
+def load_model(hparams, checkpoint_path, voice_ckpt_path):
     # model = ContourEncoder(hparams).cuda()
     # model = CnnEncoder(hparams).cuda()
     hparams_b = copy.copy(hparams)
     hparams_b.input_size = 512
     model = CombinedModel(hparams, hparams_b)
-    model.singing_voice_estimator.load_state_dict(torch.load('/home/svcapp/userdata/flo_model/voice_estimator_0.0001_210308-184612/checkpoint_best.pt')['state_dict'])
+    model.singing_voice_estimator.load_state_dict(torch.load(voice_ckpt_path)['state_dict'])
     model.contour_encoder.load_state_dict(torch.load(checkpoint_path)['state_dict'])
     if hparams.data_parallel:
         model = torch.nn.DataParallel(model)
@@ -244,7 +244,7 @@ def validate(model, val_loader, entire_loader, logger, epoch, iteration, hparams
 
     return valid_score[record_key]
 
-def train(output_directory, log_directory, checkpoint_path, hparams):
+def train(output_directory, log_directory, checkpoint_path, voice_ckpt_path, hparams):
     """Training and validation logging results to tensorboard and stdout
 
     Params
@@ -259,7 +259,7 @@ def train(output_directory, log_directory, checkpoint_path, hparams):
 
     torch.manual_seed(hparams.seed)
     torch.cuda.manual_seed(hparams.seed)
-    model = load_model(hparams, checkpoint_path)
+    model = load_model(hparams, checkpoint_path, voice_ckpt_path)
     learning_rate = hparams.learning_rate
     # if hparams.optimizer_type.lower() == 'adamp':
     #     optimizer = AdamP(model.parameters(), lr=learning_rate,
@@ -394,8 +394,11 @@ if __name__ == '__main__':
     parser.add_argument('-l', '--log_directory', type=str,
                         default = "logdir/",
                         help='directory to save tensorboard logs')
-    parser.add_argument('-c', '--checkpoint_path', type=str, default='/home/svcapp/userdata/flo_model/worker_401032_contour_scheduled_hidden256_lr0.0001_210211-032853/checkpoint_last.pt',
-                        required=False, help='checkpoint path')
+    parser.add_argument('-c', '--checkpoint_path', type=str, default='/output/flo_model/worker_401032_contour_scheduled_hidden256_lr0.0001_210211-032853/checkpoint_last.pt',
+                        required=True, help='checkpoint path')
+    parser.add_argument('-v', '--voice_ckpt_path', type=str, default='/output/voice_estimator_0.0001_210311-175053/checkpoint_last.pt',
+        required=True, help='checkpoint path')
+
     parser.add_argument('--device', type=int, default=0,
                     required=False, help='gpu device index')
     parser.add_argument('--contour_path', type=str,
@@ -511,4 +514,4 @@ if __name__ == '__main__':
     print("cuDNN Benchmark:", hparams.cudnn_benchmark)
 
     
-    train(output_directory, args.log_directory, args.checkpoint_path, hparams)
+    train(output_directory, args.log_directory, args.checkpoint_path, args.voice_ckpt_path, hparams)
