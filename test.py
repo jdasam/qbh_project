@@ -98,8 +98,8 @@ def save_dict_result_to_csv(adict):
     return
 
 if __name__ == "__main__":
-    entire_loader, humm_test_loader = prepare_dataset(data_dir='/home/svcapp/t2meta/flo_new_music/music_100k/') #, selected_genres=[4])
-    worker_ids = [480785, 401032]
+    entire_loader, humm_test_loader = prepare_dataset(data_dir='/home/svcapp/t2meta/flo_new_music/music_100k/', selected_genres=[4])
+    worker_ids = [480785, 401032, 482492, 482457]
     model_dir = Path('/home/svcapp/t2meta/qbh_model')
     for id in worker_ids:
         ckpt_dir = next(model_dir.glob(f"worker_{id}*"))
