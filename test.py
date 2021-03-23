@@ -36,7 +36,7 @@ def prepare_dataset(data_dir='/home/svcapp/userdata/flo_data_backup/', selected_
 
     song_ids = get_song_ids_of_selected_genre(metadata, selected_genre=selected_genres)
     song_ids += humm_ids
-    song_ids = humm_ids
+    # song_ids = humm_ids
     entireset = WindowedContourSet(data_dir, aug_weights=[], song_ids=song_ids, set_type='entire', pre_load=False, num_aug_samples=0, num_neg_samples=0, min_vocal_ratio=min_vocal_ratio)
 
     entire_loader = DataLoader(entireset, 512, shuffle=True,num_workers=num_workers,
