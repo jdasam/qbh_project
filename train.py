@@ -298,6 +298,7 @@ def train(output_directory, log_directory, checkpoint_path, voice_ckpt_path, hpa
     scheduler = StepLR(optimizer, step_size=hparams.learning_rate_decay_steps,
                        gamma=hparams.learning_rate_decay_rate)
     model.train()
+    model.freeze_except_audio_encoder()
     criterion = SiameseLoss(margin=hparams.loss_margin, use_euclid=hparams.use_euclid, use_elementwise=hparams.use_elementwise_loss)
     best_valid_score = 0
     # ================ MAIN TRAINNIG LOOP! ===================
@@ -347,6 +348,7 @@ def train(output_directory, log_directory, checkpoint_path, voice_ckpt_path, hpa
                     fine_optimizer = torch.optim.Adam(fine_tune_model.parameters(), lr=fine_learning_rate,
                                 weight_decay=hparams.weight_decay)
                     fine_tune_model.train()
+                    fine_tune_model.unfreeze_parameters()
                     for fine_epoch in range(hparams.epoch_for_humm_train):
                         for batch in humm_train_loader:
                             fine_tune_model.zero_grad()
@@ -362,6 +364,7 @@ def train(output_directory, log_directory, checkpoint_path, voice_ckpt_path, hpa
                     valid_score = validate(fine_tune_model, humm_val_loader, entire_loader, logger, epoch, iteration, hparams, record_key='humm_validation_score')
                     model = model.to('cuda')
                     model, optimizer, learning_rate, iteration = load_checkpoint(temp_check_path, model, optimizer)
+                    model.freeze_except_audio_encoder()
                     fine_tune_model = fine_tune_model.to('cpu')
                     orig_valid_score = validate(model, val_loader, entire_loader, logger, epoch, iteration, hparams, record_key='orig_validation_score')
                     if hparams.in_meta:

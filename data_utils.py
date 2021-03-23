@@ -292,7 +292,7 @@ class HummingAudioSet(HummingPairSet):
 
         aug_samples = []
         neg_samples = []
-        neg_audio_samples = []
+        # neg_audio_samples = []
         
         if self.set_type == 'valid' or self.set_type == 'test':
             return downsampled_melody, selected_song_id
@@ -306,9 +306,9 @@ class HummingAudioSet(HummingPairSet):
             neg_idx = random.randint(0, len(self)-1)
             if self.contours[neg_idx]['meta']['track_id'] != selected_song_id:
                 neg_samples.append(downsample_contour_array(self.contours[neg_idx]['humm'], self.down_f))
-                neg_audio_samples.append(self.load_audio(self.contours[neg_idx]['meta']['track_id'], [int(x) for x in self.contours[neg_idx]['meta']['time_stamp'].split('-')]))
+                # neg_audio_samples.append(self.load_audio(self.contours[neg_idx]['meta']['track_id'], [int(x) for x in self.contours[neg_idx]['meta']['time_stamp'].split('-')]))
 
-        return orig_sample, neg_audio_samples, aug_samples, neg_samples
+        return orig_sample, aug_samples, neg_samples
 
 
 class AudioSet(WindowedContourSet):
@@ -346,7 +346,7 @@ class AudioSet(WindowedContourSet):
 
         aug_samples = []
         neg_samples = []
-        neg_audio_samples = []
+        # neg_audio_samples = []
         
         if self.min_aug < len(self.aug_keys):
             aug_samples = [self.melody_augmentor(selected_melody, random.sample(self.aug_keys, random.randint(self.min_aug,len(self.aug_keys)))) for i in range(self.num_aug_samples-1)]
@@ -362,10 +362,11 @@ class AudioSet(WindowedContourSet):
             neg_idx = random.randint(0, len(self)-1)
             if self.contours[neg_idx]['song_id'] != selected_song_id:
                 neg_samples.append(downsample_contour_array(self.contours[neg_idx]['contour'], self.down_f))
-                neg_audio_samples.append(self.load_audio(self.contours[neg_idx]['song_id'], self.contours[neg_idx]['frame_pos']))
+                # neg_audio_samples.append(self.load_audio(self.contours[neg_idx]['song_id'], self.contours[neg_idx]['frame_pos']))
                 # neg_samples.append(self.contours[neg_idx]['song_id'])
 
-        return original_audio, neg_audio_samples, aug_samples, neg_samples
+        # return original_audio, neg_audio_samples, aug_samples, neg_samples
+        return original_audio, aug_samples, neg_samples
 
         
 
@@ -471,11 +472,14 @@ class AudioContourCollate:
     def __call__(self, batch):
         # batch: [(audio_anchor, positive_contour, negative_contour) ]* num_batch
         # anchor_audio = torch.Tensor([x[0] for x in batch])
-        anchor_and_neg_audio = [ [torch.Tensor(np.copy(x[0]))] + self.to_tensor_list(x[1]) for x in batch]
-        anchor_and_neg_audio = [y for x in anchor_and_neg_audio for y in x]
-        anchor_and_neg_audio = self.make_tensor_with_auto_pad(anchor_and_neg_audio)
+        anchor_audio = [torch.Tensor(np.copy(x[0])) for x in batch]
+        anchor_audio = self.make_tensor_with_auto_pad(anchor_audio)
+        # anchor_and_neg_audio = [ [torch.Tensor(np.copy(x[0]))] + self.to_tensor_list(x[1]) for x in batch]
+        # anchor_and_neg_audio = [y for x in anchor_and_neg_audio for y in x]
+        # anchor_and_neg_audio = self.make_tensor_with_auto_pad(anchor_and_neg_audio)
 
-        total = [self.to_tensor_list(x[2]) + self.to_tensor_list(x[3]) for x in batch ]
+        # total = [self.to_tensor_list(x[2]) + self.to_tensor_list(x[3]) for x in batch ]
+        total = [self.to_tensor_list(x[1]) + self.to_tensor_list(x[2]) for x in batch ]
         total_flattened = [y for x in total for y in x]
         max_length = max([len(x) for x in total_flattened])
         dummy = torch.zeros(len(total_flattened), max_length, 2)
@@ -483,7 +487,8 @@ class AudioContourCollate:
             seq = total_flattened[i]
             left_margin = (max_length - seq.shape[0]) // 2
             dummy[i,left_margin:left_margin+seq.shape[0],:] = seq
-        return anchor_and_neg_audio, dummy
+        # return anchor_and_neg_audio, dummy
+        return anchor_audio, dummy
 
 class AudioCollate:
     def __call__(self, batch):

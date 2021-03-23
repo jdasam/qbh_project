@@ -277,20 +277,33 @@ class CombinedModel(nn.Module):
         self.audio_encoder = CnnEncoder(hparams_b)
         self.embed_size = hparams.embed_size
 
+    def freeze_except_audio_encoder(self):
+        for param in self.singing_voice_estimator.parameters():
+            param.requires_grad = False
+        for param in self.contour_encoder.parameters():
+            param.requires_grad = False
+
+    def unfreeze_parameters(self):
+        for param in self.parameters():
+            param.requires_grad = True
+
     def forward(self, input, num_pos=0, num_neg=0, siamese=False, contour_only=False):
         if siamese:
             audio_input, contour_pos_n_neg = input
-            num_batch = audio_input.shape[0] // (num_neg+1)
+            # num_batch = audio_input.shape[0] // (num_neg+1)
+            num_batch = audio_input.shape[0]
             _, voice_hidden = self.singing_voice_estimator(audio_input)
             # voice_hidden_batch = voice_hidden.reshape(num_batch, -1, voice_hidden.shape[-1])
             # voice_hidden_batch = torch.nn.functional.max_pool1d(voice_hidden_batch.permute(0,2,1), kernel_size=10).permute(0,2,1)
 
             audio_embedding = self.audio_encoder(voice_hidden)
-            audio_embedding = audio_embedding.view(num_batch, -1, audio_embedding.shape[-1])
+            # audio_embedding = audio_embedding.view(num_batch, -1, audio_embedding.shape[-1])
+
             contour_embedding = self.contour_encoder(contour_pos_n_neg)
             contour_embedding = contour_embedding.view(num_batch, -1 , contour_embedding.shape[-1])
 
-            return audio_embedding[:,0], contour_embedding[:,:num_pos], torch.cat( [audio_embedding[:,1:], contour_embedding[:,num_pos:]], dim=1)
+            # return audio_embedding[:,0], contour_embedding[:,:num_pos], torch.cat( [audio_embedding[:,1:], contour_embedding[:,num_pos:]], dim=1)
+            return audio_embedding, contour_embedding[:,:num_pos], contour_embedding[:,num_pos:]
         elif contour_only:
             return self.contour_encoder(input)
         else:
