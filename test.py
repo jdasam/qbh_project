@@ -37,6 +37,7 @@ def prepare_dataset(data_dir='/home/svcapp/userdata/flo_data_backup/', selected_
     song_ids = get_song_ids_of_selected_genre(metadata, selected_genre=selected_genres)
     song_ids += humm_ids
     # song_ids = humm_ids
+    # song_ids = [427396913, 5466183, 30894451, 421311716, 420497440]
     entireset = WindowedContourSet(data_dir, aug_weights=[], song_ids=song_ids, set_type='entire', pre_load=False, num_aug_samples=0, num_neg_samples=0, min_vocal_ratio=min_vocal_ratio)
 
     entire_loader = DataLoader(entireset, 512, shuffle=True,num_workers=num_workers,
@@ -98,7 +99,7 @@ def save_dict_result_to_csv(adict):
     return
 
 if __name__ == "__main__":
-    entire_loader, humm_test_loader = prepare_dataset(data_dir='/home/svcapp/t2meta/flo_new_music/music_100k/', selected_genres=[4])
+    entire_loader, humm_test_loader = prepare_dataset(data_dir='/home/svcapp/t2meta/flo_new_music/music_100k/', selected_genres=[4], min_vocal_ratio=0.3)
     worker_ids = [480785, 401032, 482492, 482457]
     model_dir = Path('/home/svcapp/t2meta/qbh_model')
     for id in worker_ids:
