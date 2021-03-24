@@ -13,6 +13,8 @@ from validation import get_contour_embeddings, cal_ndcg_single
 import matplotlib.pyplot as plt
 import random
 import pandas as pd
+import humming_data_utils as utils
+
 
 
 
@@ -51,10 +53,17 @@ def prepare_dataset(data_dir='/home/svcapp/userdata/flo_data_backup/', selected_
     humm_test_loader = DataLoader(humm_test_set, 1, shuffle=False,num_workers=num_workers,
         collate_fn=ContourCollate(0, 0, for_cnn=True), pin_memory=True, drop_last=False)
 
-    return entire_loader, humm_test_loader
+    selected_100, selected_900 = utils.load_meta_from_excel("/home/svcapp/userdata/humming_db/Spec.xlsx")
+
+    meta_in_song_key = {x['track_id']: x for x in metadata}
+    for song in selected_100.to_dict('records'):
+        meta_in_song_key[song['track_id']] = song
+    for song in selected_900.to_dict('records'):
+        meta_in_song_key[song['track_id']] = song
+    return entire_loader, humm_test_loader, meta_in_song_key
 
 
-def evaluate(model, humm_test_loader, total_embs, total_song_ids):
+def evaluate(model, humm_test_loader, total_embs, total_song_ids, unique_ids, index_by_id):
     model.eval()
     num_correct_answer = 0
     total_success = []
@@ -68,14 +77,16 @@ def evaluate(model, humm_test_loader, total_embs, total_song_ids):
             anchor = model(contours.cuda())
             anchor_norm = anchor / anchor.norm(dim=1)[:, None]
             similarity = torch.mm(anchor_norm, total_embs.transpose(0,1))
+            max_similarity_by_song = torch.max(similarity[:,index_by_id], dim=-1)[0]
+
             corresp_melody_ids = torch.where(total_song_ids==song_ids)[0]
             if len(corresp_melody_ids) ==0:
                 max_similarity = -1
             else:
                 max_similarity = torch.max(similarity[:, corresp_melody_ids])
-            max_rank = torch.sum(similarity > max_similarity)
-            recommends = torch.topk(similarity, k=30, dim=-1)[1]
-            recommends = total_song_ids[recommends]
+            max_rank = torch.sum(max_similarity_by_song > max_similarity)
+            recommends = torch.topk(max_similarity_by_song, k=30, dim=-1)[1]
+            recommends = unique_ids[recommends]
             top10_success = [ int(int(song_ids[i]) in recommends[i,:10].tolist()) for i in range(recommends.shape[0])]
             total_success += top10_success
             total_recommends.append(recommends)
@@ -88,26 +99,44 @@ def evaluate(model, humm_test_loader, total_embs, total_song_ids):
     total_test_ids = torch.cat(total_test_ids, dim=0).cpu().numpy()
     return total_recommends, total_test_ids, total_rank
 
-def convert_result_to_dict(ids, ranks):
+def get_index_by_id(total_song_ids):
+    out = []
+    unique_ids = list(set(total_song_ids.tolist()))
+    for id in unique_ids:
+        out.append(torch.where(total_song_ids==id)[0])
+    max_len = max([len(x) for x in out])
+    dummy = torch.zeros((len(unique_ids), max_len), dtype=torch.long)
+    for i, ids in enumerate(out):
+        dummy[i,:len(ids)] = ids
+        dummy[i, len(ids):] = ids[-1]
+    return torch.LongTensor(unique_ids), dummy
+
+def get_similarity_by_id(similarity, unique_ids, index_by_ids):
+    return
+
+def convert_result_to_dict(ids, ranks, meta):
     out = defaultdict(list)
     for id, r in zip(ids, ranks):
-        out[id].append(r)
+        out[meta[id]['track_name']].append(r)
     return dict(out)
 
 def save_dict_result_to_csv(adict):
-
     return
 
+
 if __name__ == "__main__":
-    entire_loader, humm_test_loader = prepare_dataset(data_dir='/home/svcapp/t2meta/flo_new_music/music_100k/', selected_genres=[4], min_vocal_ratio=0.3)
+
+    entire_loader, humm_test_loader, meta = prepare_dataset(data_dir='/home/svcapp/t2meta/flo_new_music/music_100k/', min_vocal_ratio=0.3)
+
     worker_ids = [480785, 401032, 482492, 482457]
     model_dir = Path('/home/svcapp/t2meta/qbh_model')
     for id in worker_ids:
         ckpt_dir = next(model_dir.glob(f"worker_{id}*"))
         model = load_model(ckpt_dir)
         total_embs, total_song_ids = get_contour_embeddings(model, entire_loader)
-        total_recommends, total_test_ids, total_rank = evaluate(model, humm_test_loader, total_embs, total_song_ids)
-        out = convert_result_to_dict(total_test_ids, total_rank)
+        unique_ids, index_by_id = get_index_by_id(total_song_ids)
+        total_recommends, total_test_ids, total_rank = evaluate(model, humm_test_loader, total_embs, total_song_ids, unique_ids, index_by_id)
+        out = convert_result_to_dict(total_test_ids, total_rank, meta)
         keys = sorted(out.keys())
         rank_array = np.asarray([out[x] for x in keys])
         plt.figure()
@@ -118,3 +147,8 @@ if __name__ == "__main__":
 
         dataframe = pd.DataFrame(out).transpose()
         dataframe.to_csv(f"worker_{id}_eval_table.csv")
+
+
+
+
+# 결과 표에 곡명, 장르별로 정렬, Prof/Non-prof 구별 
