@@ -63,7 +63,7 @@ def prepare_humming_db_loaders(hparams, return_test=False):
         
 def prepare_dataloaders(hparams, valid_only=False):
     # Get data, data loaders and collate function ready
-    with open('flo_metadata.dat', 'rb') as f:
+    with open('flo_metadata_220k.dat', 'rb') as f:
         metadata = pickle.load(f)
     selected_genres = [4, 12, 13, 17, 10, 7,15, 11, 9]
     # selected_genres = [4]
