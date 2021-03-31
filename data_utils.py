@@ -311,6 +311,40 @@ class HummingAudioSet(HummingPairSet):
         return orig_sample, aug_samples, neg_samples
 
 
+class AudioTestSet:
+    def __init__(self, path, song_ids=[], set_type='entire', min_vocal_ratio=0.5, sample_rate=8000):
+        self.path = Path(path)
+        self.sample_rate = sample_rate
+        self.song_ids = song_ids
+
+        self.slice_infos = [self.cal_slice_position(x) for x in self.song_ids]
+        self.slice_infos = [y for x in self.slice_infos for y in x]
+
+    def cal_slice_position(self, song_id):
+        audio_path = song_id_to_audio_path(self.path, song_id)
+        audio_samples = load_audio_sample(audio_path, self.sample_rate)
+        num_window = (len(audio_samples) - self.sample_rate * 20) // (self.sample_rate * 5) + 1
+        return [(song_id, i * self.sample_rate * 5, i * self.sample_rate * 5 + 20 * self.sample_rate) for i in range(num_window)]
+
+    # def cal_num_window(self, song_id):
+    #     audio_path = song_id_to_audio_path(self.path, song_id)
+    #     audio_samples = load_audio_sample(audio_path, self.sample_rate)
+    #     return (len(audio_samples) - self.sample_rate * 20) // (self.sample_rate * 5) + 1
+
+    def load_audio(self, song_id, start, end):
+        audio_path = song_id_to_audio_path(self.path, song_id)
+        audio_samples = load_audio_sample(audio_path, self.sample_rate)
+        return audio_samples[start:end]
+
+    def __getitem__(self, index):
+        sel_id, sel_start, sel_end = self.slice_infos[index]
+        audio = self.load_audio(sel_id, sel_start, sel_end)
+        return audio, sel_id
+
+    def __len__(self):
+        return len(self.slice_infos)
+    
+
 class AudioSet(WindowedContourSet):
     def __init__(self, path, aug_weights, song_ids=[], num_aug_samples=4, num_neg_samples=4, quantized=True, pre_load=False, pre_load_data=None, set_type='entire', min_aug=1, min_vocal_ratio=0.5, sample_rate=8000):
         super(AudioSet, self).__init__(path, aug_weights, song_ids, num_aug_samples, num_neg_samples, quantized, pre_load, pre_load_data, set_type, min_aug, min_vocal_ratio)
