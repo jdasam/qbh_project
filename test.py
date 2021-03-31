@@ -100,7 +100,7 @@ def evaluate(model, humm_test_loader, total_embs, total_song_ids, unique_ids, in
     total_recommends = torch.cat(total_recommends, dim=0).cpu().numpy()
     total_test_ids = torch.cat(total_test_ids, dim=0).cpu().numpy()
     mrr_score = np.mean(1 / (np.asarray(total_rank)+1))
-    print(mrr_score)
+    print('mrr: ', mrr_score)
     return score, mrr_score, total_recommends, total_test_ids, total_rank
 
 def get_index_by_id(total_song_ids):
