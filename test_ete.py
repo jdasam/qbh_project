@@ -48,7 +48,7 @@ def prepare_dataset(data_dir='/home/svcapp/userdata/flo_data_backup/', selected_
 
     song_ids = get_song_ids_of_selected_genre(metadata, selected_genre=selected_genres)
     song_ids += humm_ids
-    song_ids = humm_ids
+    # song_ids = humm_ids
     # song_ids = [427396913, 5466183, 30894451, 421311716, 420497440]
     # entireset = WindowedContourSet(data_dir, aug_weights=[], song_ids=song_ids, set_type='entire', pre_load=False, num_aug_samples=0, num_neg_samples=0, min_vocal_ratio=min_vocal_ratio)
     entireset = AudioTestSet(data_dir, song_ids)
@@ -107,9 +107,11 @@ def evaluate(model, humm_test_loader, total_embs, total_song_ids, unique_ids, in
             num_correct_answer += sum(top10_success)
     score = num_correct_answer / len(humm_test_loader.dataset)
     print(score)
+    mrr_score = np.mean(1 / (np.asarray(total_rank)+1))
+    print('mrr: ', mrr_score)
     total_recommends = torch.cat(total_recommends, dim=0).cpu().numpy()
     total_test_ids = torch.cat(total_test_ids, dim=0).cpu().numpy()
-    return score, total_recommends, total_test_ids, total_rank
+    return score, mrr_score, total_recommends, total_test_ids, total_rank
 
 def get_index_by_id(total_song_ids):
     out = []
@@ -186,7 +188,7 @@ if __name__ == "__main__":
         model = load_model(ckpt_dir)
         total_embs, total_song_ids = get_contour_embeddings(model, entire_loader)
         unique_ids, index_by_id = get_index_by_id(total_song_ids)
-        score, total_recommends, total_test_ids, total_rank = evaluate(model, humm_test_loader, total_embs, total_song_ids, unique_ids, index_by_id)
+        score, mrr_score, total_recommends, total_test_ids, total_rank = evaluate(model, humm_test_loader, total_embs, total_song_ids, unique_ids, index_by_id)
         
         out = convert_result_to_dict(total_test_ids, total_rank, meta)
         detailed_out = convert_result_to_rec_title(total_test_ids, total_recommends, total_rank, meta, humm_meta)
@@ -197,7 +199,7 @@ if __name__ == "__main__":
         dataframe = dataframe.sort_values('Class')
         sorted_keys = dataframe.to_dict()[0].keys()
         dataframe = dataframe.drop(columns=[0])
-        dataframe.to_csv(f"worker_{id}_87k_eval_table_score{score}.csv")
+        dataframe.to_csv(f"worker_{id}_87k_eval_table_top10{score}_mrr{mrr_score}.csv")
         rank_array = np.asarray([out[x] for x in sorted_keys])
         fig = plt.figure(figsize=(20,20))
         ax = plt.gca()
