@@ -32,7 +32,7 @@ def load_model(ckpt_dir):
 
 def prepare_dataset(data_dir='/home/svcapp/userdata/flo_data_backup/', selected_genres=[4, 12, 13, 17, 10, 7,15, 11, 9], num_workers=2, min_vocal_ratio=0.5):
 
-    with open('flo_metadata_220k.dat', 'rb') as f:
+    with open('flo_metadata.dat', 'rb') as f:
         metadata = pickle.load(f)
     with open('humm_db_ids.dat', 'rb') as f:
         humm_ids = pickle.load(f)
@@ -99,7 +99,9 @@ def evaluate(model, humm_test_loader, total_embs, total_song_ids, unique_ids, in
     print(score)
     total_recommends = torch.cat(total_recommends, dim=0).cpu().numpy()
     total_test_ids = torch.cat(total_test_ids, dim=0).cpu().numpy()
-    return score, total_recommends, total_test_ids, total_rank
+    mrr_score = np.mean(1 / (np.asarray(total_rank)+1))
+    print(mrr_score)
+    return score, mrr_score, total_recommends, total_test_ids, total_rank
 
 def get_index_by_id(total_song_ids):
     out = []
@@ -177,7 +179,7 @@ if __name__ == "__main__":
         model = load_model(ckpt_dir)
         total_embs, total_song_ids = get_contour_embeddings(model, entire_loader)
         unique_ids, index_by_id = get_index_by_id(total_song_ids)
-        score, total_recommends, total_test_ids, total_rank = evaluate(model, humm_test_loader, total_embs, total_song_ids, unique_ids, index_by_id)
+        score, mrr_score, total_recommends, total_test_ids, total_rank = evaluate(model, humm_test_loader, total_embs, total_song_ids, unique_ids, index_by_id)
         
         out = convert_result_to_dict(total_test_ids, total_rank, meta)
         detailed_out = convert_result_to_rec_title(total_test_ids, total_recommends, total_rank, meta, humm_meta)
@@ -188,7 +190,7 @@ if __name__ == "__main__":
         dataframe = dataframe.sort_values('Class')
         sorted_keys = dataframe.to_dict()[0].keys()
         dataframe = dataframe.drop(columns=[0])
-        dataframe.to_csv(f"worker_{id}_87k_eval_table_score{score}.csv")
+        dataframe.to_csv(f"worker_{id}_87k_eval_table_top10{score}_mrr{mrr_score}.csv")
         rank_array = np.asarray([out[x] for x in sorted_keys])
         fig = plt.figure(figsize=(20,20))
         ax = plt.gca()
