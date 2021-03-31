@@ -11,6 +11,7 @@ from model import CnnEncoder
 from data_utils import WindowedContourSet, ContourCollate, HummingPairSet, get_song_ids_of_selected_genre
 from validation import get_contour_embeddings, cal_ndcg_single
 import matplotlib.pyplot as plt
+import matplotlib.font_manager as fm
 import random
 import pandas as pd
 import humming_data_utils as utils
@@ -31,7 +32,7 @@ def load_model(ckpt_dir):
 
 def prepare_dataset(data_dir='/home/svcapp/userdata/flo_data_backup/', selected_genres=[4, 12, 13, 17, 10, 7,15, 11, 9], num_workers=2, min_vocal_ratio=0.5):
 
-    with open('flo_metadata.dat', 'rb') as f:
+    with open('flo_metadata_220k.dat', 'rb') as f:
         metadata = pickle.load(f)
     with open('humm_db_ids.dat', 'rb') as f:
         humm_ids = pickle.load(f)
@@ -94,10 +95,11 @@ def evaluate(model, humm_test_loader, total_embs, total_song_ids, unique_ids, in
             total_rank.append(max_rank.item())
             
             num_correct_answer += sum(top10_success)
-    print(num_correct_answer / len(humm_test_loader.dataset))
+    score = num_correct_answer / len(humm_test_loader.dataset)
+    print(score)
     total_recommends = torch.cat(total_recommends, dim=0).cpu().numpy()
     total_test_ids = torch.cat(total_test_ids, dim=0).cpu().numpy()
-    return total_recommends, total_test_ids, total_rank
+    return score, total_recommends, total_test_ids, total_rank
 
 def get_index_by_id(total_song_ids):
     out = []
@@ -117,8 +119,39 @@ def get_similarity_by_id(similarity, unique_ids, index_by_ids):
 def convert_result_to_dict(ids, ranks, meta):
     out = defaultdict(list)
     for id, r in zip(ids, ranks):
-        out[meta[id]['track_name']].append(r)
+        out[meta[id]['artist_name'] + ' - ' + meta[id]['track_name']].append(r)
     return dict(out)
+
+def id_to_name(idx, meta):
+    if 'artist_name' in meta[idx]:
+        return f'{meta[idx]["artist_name"]} - {meta[idx]["track_name"]}'
+    else:
+        return f'{meta[idx]["artist_name_basket"][0]} - {meta[idx]["track_name"]}'
+
+def convert_result_to_rec_title(total_test_ids, total_recommends, total_rank, meta, humm_meta, k=3):
+    out = {}
+    for idx in total_test_ids:
+        out[meta[idx]['artist_name'] + ' - ' + meta[idx]['track_name']] = [idx] + [ [] for i in range(5)]
+    
+    for idx, rec, r, humm in zip(total_test_ids, total_recommends, total_rank, humm_meta):
+        target = out[meta[idx]['artist_name'] + ' - ' + meta[idx]['track_name']]
+        string =  "\n".join([f'Rec rank: {r+1}'] + [id_to_name(idx, meta) for idx in rec[:k]]
+                            + [f'Group: {humm["singer_group"]}', f'Singer ID: {humm["singer_id"]}', f'Gender: {humm["singer_gender"]}', f'Humm type: {humm["humming_type"]}'])
+        if humm['singer_group'] == 'P':
+            if target[1] == []:
+                target[1] = string
+            else:
+                target[2] =  string
+        else:
+            if target[3] ==[]:
+                target[3] =  string
+            elif target[4] ==[]:
+                target[4] =  string
+            else:
+                target[5] =  string
+
+    return out
+
 
 def save_dict_result_to_csv(adict):
     return
@@ -128,27 +161,43 @@ if __name__ == "__main__":
 
     entire_loader, humm_test_loader, meta = prepare_dataset(data_dir='/home/svcapp/t2meta/flo_new_music/music_100k/', min_vocal_ratio=0.3)
 
-    worker_ids = [480785, 401032, 482492, 482457]
+    font_path = 'malgun.ttf'
+    font_prop = fm.FontProperties(fname=font_path, size=20)
+
+    flo_test_list = pd.read_csv('flo_test_list.csv')
+    flo_test_meta = {x['track id ']: x for x in flo_test_list.to_dict('records')}
+    humm_meta = [x['meta'] for x in humm_test_loader.dataset.contours]
+
+
+    worker_ids = [401032, 480785, 482492, 482457, 483559, 483461]
+    # worker_ids = [482492]
     model_dir = Path('/home/svcapp/t2meta/qbh_model')
     for id in worker_ids:
         ckpt_dir = next(model_dir.glob(f"worker_{id}*"))
         model = load_model(ckpt_dir)
         total_embs, total_song_ids = get_contour_embeddings(model, entire_loader)
         unique_ids, index_by_id = get_index_by_id(total_song_ids)
-        total_recommends, total_test_ids, total_rank = evaluate(model, humm_test_loader, total_embs, total_song_ids, unique_ids, index_by_id)
+        score, total_recommends, total_test_ids, total_rank = evaluate(model, humm_test_loader, total_embs, total_song_ids, unique_ids, index_by_id)
+        
         out = convert_result_to_dict(total_test_ids, total_rank, meta)
-        keys = sorted(out.keys())
-        rank_array = np.asarray([out[x] for x in keys])
-        plt.figure()
+        detailed_out = convert_result_to_rec_title(total_test_ids, total_recommends, total_rank, meta, humm_meta)
+
+            
+        dataframe = pd.DataFrame(detailed_out).transpose()
+        dataframe.insert(1, 'Class', [flo_test_meta[x]['해당 요건'] for x in dataframe[0].values])
+        dataframe = dataframe.sort_values('Class')
+        sorted_keys = dataframe.to_dict()[0].keys()
+        dataframe = dataframe.drop(columns=[0])
+        dataframe.to_csv(f"worker_{id}_87k_eval_table_score{score}.csv")
+        rank_array = np.asarray([out[x] for x in sorted_keys])
+        fig = plt.figure(figsize=(20,20))
+        ax = plt.gca()
         plt.imshow(1/(rank_array+1))
         plt.colorbar()
-        plt.yticks(list(range(len(rank_array))), keys, fontsize=5)
-        plt.savefig(f'worker_{id}_eval_matrix.png')
-
-        dataframe = pd.DataFrame(out).transpose()
-        dataframe.to_csv(f"worker_{id}_eval_table.csv")
-
-
-
+        ax.set_yticks(list(range(len(rank_array))))
+        ax.set_yticklabels(sorted_keys)
+        for label in ax.get_yticklabels() :
+            label.set_fontproperties(font_prop)    
+        plt.savefig(f'worker_{id}_87k_eval_matrix.png')
 
 # 결과 표에 곡명, 장르별로 정렬, Prof/Non-prof 구별 
