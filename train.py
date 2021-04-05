@@ -296,7 +296,7 @@ def train(output_directory, log_directory, checkpoint_path, hparams):
             start = time.perf_counter()
             model.zero_grad()
             batch = batch.cuda()
-            anchor, pos, neg = model.siamese(batch)
+            anchor, pos, neg = model(batch, siamese=True)
             loss = criterion(anchor, pos, neg)
             reduced_loss = loss.item()
             loss.backward()
@@ -336,7 +336,7 @@ def train(output_directory, log_directory, checkpoint_path, hparams):
                         for batch in humm_train_loader:
                             fine_tune_model.zero_grad()
                             batch = batch.cuda()
-                            anchor, pos, neg = fine_tune_model.siamese(batch)
+                            anchor, pos, neg = fine_tune_model(batch, siamese=True)
                             fine_loss = criterion(anchor, pos, neg)
                             fine_loss.backward()
                             torch.nn.utils.clip_grad_norm_(fine_tune_model.parameters(), hparams.grad_clip_thresh)
