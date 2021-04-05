@@ -387,6 +387,8 @@ if __name__ == '__main__':
     parser.add_argument('--data_dir', type=str,
                     help='path to pitch txt dir')
     parser.add_argument('--in_metalearner', type=lambda x: (str(x).lower() == 'true'), default=False, help='whether work in meta learner')
+    parser.add_argument('--data_parallel', type=lambda x: (str(x).lower() == 'true'), default=False, help='train with data parallel')
+
     parser.add_argument('--warm_start', action='store_true',
                         help='load model weights only, ignore specified layers')
     parser.add_argument('--hidden_size', type=int, required=False)        
