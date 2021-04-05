@@ -41,7 +41,7 @@ def load_model(ckpt_dir):
 
 def prepare_dataset(data_dir='/home/svcapp/userdata/flo_data_backup/', selected_genres=[4, 12, 13, 17, 10, 7,15, 11, 9], num_workers=2, batch_size=32):
 
-    with open('flo_metadata.dat', 'rb') as f:
+    with open('flo_metadata_220k.dat', 'rb') as f:
         metadata = pickle.load(f)
     with open('humm_db_ids.dat', 'rb') as f:
         humm_ids = pickle.load(f)
@@ -181,7 +181,7 @@ if __name__ == "__main__":
     humm_meta = [x['meta'] for x in humm_test_loader.dataset.contours]
 
 
-    worker_ids = [483610]
+    worker_ids = [484078, 484075]
     model_dir = Path('/home/svcapp/t2meta/end-to-end-qbh')
     for id in worker_ids:
         ckpt_dir = next(model_dir.glob(f"worker_{id}*"))
