@@ -70,7 +70,7 @@ def get_orig_audio_path_by_id(track_id, audio_dir):
     return orig_audio_path
 
 def audio_path_to_pitch_path(path):
-    return path.parent / f'pitch_{path.stem}.txt'
+    return path.parent / f'{path.stem}_pitch.txt'
 
 def load_melody_txt(path, to_midi_pitch=True):
     with open(path, "r") as f:
@@ -136,7 +136,6 @@ def load_pitch_csv(pitch_path):
     with open(pitch_path, newline='') as f:
         reader = csv.reader(f)
         data = list(reader)
-        
     data = np.asarray(data[1:], dtype='float32')
     return data
 
@@ -151,12 +150,6 @@ def load_crepe_pitch(pitch_path, threshold=0.7, to_midi_pitch=True, cut_low_freq
 
     return pitch_data
 
-def pitch_array_to_formatted(pitch_array, mean=61.702336487738215, std=5.5201786930065415):
-    output = np.zeros((len(pitch_array), 2))
-    output[pitch_array!=0,1] = 1
-    output[:,0] = (pitch_array - mean) / std
-    output[output[:,1]==0, 0]= 0
-    return output
 
 if __name__ == "__main__":
     selected_100, selected_900 = load_meta_from_excel()

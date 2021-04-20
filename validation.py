@@ -30,13 +30,13 @@ def get_contour_embs_from_overlapped_contours(model, dataset, batch_size=128):
 
 def get_contour_embeddings(model, cmp_loader):
     # cmp_loader: loading entire trainset to calculate embedding of each piece
-
     try:
         embed_size = model.embed_size
     except:
         embed_size = model.module.embed_size
 
     total_embs = torch.zeros([len(cmp_loader.dataset), embed_size]).to('cuda')
+    total_song_ids = torch.zeros(len(cmp_loader.dataset),dtype=torch.long)
     total_song_ids = torch.zeros(len(cmp_loader.dataset),dtype=torch.long)
     current_idx = 0
     model.eval()
