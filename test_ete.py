@@ -55,7 +55,7 @@ def prepare_dataset(data_dir='/home/svcapp/userdata/flo_data_backup/', selected_
 
     song_ids = get_song_ids_of_selected_genre(metadata, selected_genre=selected_genres)
     song_ids += humm_ids
-    song_ids = humm_ids
+    # song_ids = humm_ids
     # song_ids = [427396913, 5466183, 30894451, 421311716, 420497440]
     # entireset = WindowedContourSet(data_dir, aug_weights=[], song_ids=song_ids, set_type='entire', pre_load=False, num_aug_samples=0, num_neg_samples=0, min_vocal_ratio=min_vocal_ratio)
     entireset = AudioTestSet(data_dir, song_ids)
@@ -208,7 +208,6 @@ if __name__ == "__main__":
     flo_test_list = pd.read_csv('flo_test_list.csv')
     flo_test_meta = {x['track id ']: x for x in flo_test_list.to_dict('records')}
     humm_meta = [x['meta'] for x in humm_test_loader.dataset.contours]
-
 
     worker_ids = [484078, 484075]
     model_dir = Path('/home/svcapp/t2meta/end-to-end-qbh')
