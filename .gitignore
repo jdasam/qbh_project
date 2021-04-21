@@ -4,3 +4,4 @@
 *-checkpoint.py
 *.vscode
 /valid_monitoring
+/eval*
