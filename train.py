@@ -5,7 +5,6 @@ import _pickle as pickle
 import copy
 
 from math import inf as mathinf
-from simplejson import dump as json_dump, load as json_load
 import numpy as np
 from tqdm import tqdm
 from pathlib import Path
@@ -15,13 +14,14 @@ import torch
 from torch.utils.data import DataLoader
 # from adamp import AdamP
 
-from model import ContourEncoder, CnnEncoder
-from data_utils import ContourSet, ContourCollate, HummingPairSet, pad_collate, WindowedContourSet, get_song_ids_of_selected_genre
+from model import CnnEncoder
+from data_utils import ContourCollate, HummingPairSet, WindowedContourSet, get_song_ids_of_selected_genre
 from torch.optim.lr_scheduler import StepLR
 from logger import Logger
 from hparams import HParams
 from loss_function import SiameseLoss
 from validation import get_contour_embeddings, cal_ndcg, cal_ndcg_single
+from parser import create_parser
 
 from metalearner.common.config import experiment, worker
 from metalearner.api import scalars
@@ -38,13 +38,10 @@ def prepare_humming_db_loaders(hparams, return_test=False):
     aug_weights = make_aug_param_dictionary(hparams)
     train_set = HummingPairSet(contour_pairs, aug_weights, "train", aug_keys, num_aug_samples=hparams.num_pos_samples, num_neg_samples=hparams.num_neg_samples)
     valid_set = HummingPairSet(contour_pairs, [], "valid", aug_keys, num_aug_samples=0, num_neg_samples=0)
-    # test_set = HummingPairSet(contour_pairs, "test", num_aug_samples=0, num_neg_samples=0)
     train_loader = DataLoader(train_set, hparams.batch_size, shuffle=True,num_workers=hparams.num_workers,
         collate_fn=ContourCollate(hparams.num_pos_samples, hparams.num_neg_samples, for_cnn=True), pin_memory=True)
     valid_loader = DataLoader(valid_set, hparams.valid_batch_size, shuffle=False,num_workers=hparams.num_workers,
         collate_fn=ContourCollate(0, 0, for_cnn=True), pin_memory=True, drop_last=False)
-    # test_loader = DataLoader(test_set, hparams.valid_batch_size, shuffle=False,num_workers=hparams.num_workers,
-    #     collate_fn=ContourCollate(0, 0, for_cnn=True), pin_memory=True, drop_last=False)
     with open(hparams.contour_path, 'rb') as f:
         # pre_loaded_data = json_load(f)
         pre_loaded_data = pickle.load(f)
@@ -140,18 +137,12 @@ def save_hparams(hparams, output_dir):
     if isinstance(output_dir, str):
         output_dir = Path(output_dir)
     output_name = output_dir / 'hparams.dat'
-    # output_name = output_dir / 'hparams.json'
-    # with open(output_name, 'w', encoding='utf-8') as f:
-    #     json_dump(hparams.to_json(), f, ensure_ascii=False)
     with open(output_name, 'wb') as f:
         pickle.dump(hparams, f)
 
 def load_hparams(checkpoint_path):
     if isinstance(checkpoint_path, str):
         checkpoint_path = Path(checkpoint_path)
-    # hparams_path = checkpoint_path.parent / 'hparams.json'
-    # with open(hparams_path) as json_file:
-    #     return AttributeDict(json_load(json_file))
     hparams_path = checkpoint_path.parent / 'hparams.dat'
     with open(hparams_path, 'rb') as f:
         return pickle.load(f)
@@ -234,26 +225,20 @@ def validate(model, val_loader, entire_loader, logger, epoch, iteration, hparams
     return valid_score[record_key]
 
 def train(output_directory, log_directory, checkpoint_path, hparams):
-    """Training and validation logging results to tensorboard and stdout
+    """Training and validation logging results to tensorboard
 
     Params
     ------
     output_directory (string): directory to save checkpoints
     log_directory (string) directory to save tensorboard logs
     checkpoint_path(string): checkpoint path
-    n_gpus (int): number of gpus
-    rank (int): rank of current gpu
-    hparams (object): comma separated list of "name=value" pairs.
+    hparams (object): hyperparameter object (defined in hparams.py)
     """
 
     torch.manual_seed(hparams.seed)
     torch.cuda.manual_seed(hparams.seed)
     model = load_model(hparams)
     learning_rate = hparams.learning_rate
-    # if hparams.optimizer_type.lower() == 'adamp':
-    #     optimizer = AdamP(model.parameters(), lr=learning_rate,
-    #                                 weight_decay=hparams.weight_decay)
-    # else:
     optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate,
                                 weight_decay=hparams.weight_decay)
 
@@ -304,22 +289,12 @@ def train(output_directory, log_directory, checkpoint_path, hparams):
             optimizer.step()
             scheduler.step()
             duration = time.perf_counter() - start
-            if hparams.in_meta:
-                results = {'training loss': -reduced_loss}
-                # response = scalars.send_train_result(worker.id, epoch, iteration, results)
-            else:
-                logger.log_training(
-                    reduced_loss, grad_norm, learning_rate, duration, iteration)
-            # if hparams.combined_training and iteration % hparams.iters_per_humm_train == 0:
-            #     model.zero_grad()
-            #     batch = next(iter(humm_train_loader))
-            #     batch = batch.cuda()
-            #     anchor, pos, neg = model.siamese(batch)
-            #     loss = criterion(anchor, pos, neg)
-            #     loss.backward()
-            #     grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), hparams.grad_clip_thresh)
-            #     optimizer.step()
-
+            # if hparams.in_meta:
+            #     results = {'training loss': -reduced_loss}
+            #     # response = scalars.send_train_result(worker.id, epoch, iteration, results)
+            # else:
+            logger.log_training(
+                reduced_loss, grad_norm, learning_rate, duration, iteration)
 
             if iteration % hparams.iters_per_checkpoint == 1: # and not iteration==0:
                 if hparams.combined_training:
@@ -369,79 +344,7 @@ def train(output_directory, log_directory, checkpoint_path, hparams):
 
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser()
-    parser.add_argument('-o', '--output_directory', type=str,
-                        default="/home/svcapp/userdata/flo_model/",
-                        help='directory to save checkpoints')
-    parser.add_argument('-l', '--log_directory', type=str,
-                        default = "logdir/",
-                        help='directory to save tensorboard logs')
-    parser.add_argument('-c', '--checkpoint_path', type=str, default=None,
-                        required=False, help='checkpoint path')
-    parser.add_argument('--device', type=int, default=0,
-                    required=False, help='gpu device index')
-    parser.add_argument('--contour_path', type=str,
-                    help='path to contour.json')
-    parser.add_argument('--humming_path', type=str,
-                    help='path to contour.json')
-    parser.add_argument('--data_dir', type=str,
-                    help='path to pitch txt dir')
-    parser.add_argument('--in_metalearner', type=lambda x: (str(x).lower() == 'true'), default=False, help='whether work in meta learner')
-    parser.add_argument('--data_parallel', type=lambda x: (str(x).lower() == 'true'), default=False, help='train with data parallel')
-
-    parser.add_argument('--warm_start', action='store_true',
-                        help='load model weights only, ignore specified layers')
-    parser.add_argument('--hidden_size', type=int, required=False)        
-    parser.add_argument('--embed_size', type=int, required=False)
-    parser.add_argument('--kernel_size', type=int, required=False)
-    parser.add_argument('--compression_ratio', type=int, required=False)
-
-    parser.add_argument('--num_head', type=int, required=False)
-    parser.add_argument('--batch_size', type=int, required=False)
-    parser.add_argument('--valid_batch_size', type=int, required=False)
-
-    parser.add_argument('--epochs', type=int, required=False)    
-    parser.add_argument('--iters_per_checkpoint', type=int, required=False)
-
-    parser.add_argument('--learning_rate', type=float)
-    parser.add_argument('--weight_decay', type=float)
-    parser.add_argument('--momentum', type=float)
-    parser.add_argument('--drop_out', type=float)
-    parser.add_argument('--num_workers', type=int)        
-    parser.add_argument('--model_code', type=str)
-    parser.add_argument('--optimizer_type', type=str)
-    parser.add_argument('--num_neg_samples', type=int)
-    parser.add_argument('--num_pos_samples', type=int)
-    parser.add_argument('--num_layers', type=int)
-    parser.add_argument('--loss_margin', type=float)
-    parser.add_argument('--min_vocal_ratio', type=float)
-
-    parser.add_argument('--summ_type', type=str)
-    parser.add_argument('--use_pre_encoder', type=lambda x: (str(x).lower() == 'true'))
-    parser.add_argument('--is_scheduled', type=lambda x: (str(x).lower() == 'true'))
-    parser.add_argument('--get_valid_by_aug', type=lambda x: (str(x).lower() == 'true'))
-    parser.add_argument('--use_res', type=lambda x: (str(x).lower() == 'true'))
-    parser.add_argument('--use_gradual_size', type=lambda x: (str(x).lower() == 'true'))
-    parser.add_argument('--train_on_humming', type=lambda x: (str(x).lower() == 'true'))
-    parser.add_argument('--iters_per_humm_train', type=int)
-    parser.add_argument('--combined_training', type=lambda x: (str(x).lower() == 'true'))
-    parser.add_argument('--epoch_for_humm_train', type=int)
-    parser.add_argument('--use_elementwise_loss', type=lambda x: (str(x).lower() == 'true'))
-
-    parser.add_argument('--add_abs_noise', type=lambda x: (str(x).lower() == 'true'))
-    parser.add_argument('--add_smoothing', type=lambda x: (str(x).lower() == 'true'))
-
-    parser.add_argument('--mask_w', type=float)
-    parser.add_argument('--tempo_w', type=float)
-    parser.add_argument('--tempo_slice', type=int)
-    parser.add_argument('--drop_w', type=float)
-    parser.add_argument('--std_w', type=float)
-    parser.add_argument('--pitch_noise_w', type=float)
-    parser.add_argument('--fill_w', type=float)
-    parser.add_argument('--abs_noise_r', type=float)
-    parser.add_argument('--abs_noise_w', type=float)
-
-
+    parser = create_parser()
     args = parser.parse_args()
     if args.checkpoint_path:
         hparams = load_hparams(args.checkpoint_path)
@@ -450,13 +353,6 @@ if __name__ == '__main__':
         hparams.humming_path = dummy.humming_path
         hparams.in_meta = False
         hparams.get_valid_by_aug = False
-
-        # hparams.use_gradual_size = True
-        # hparams.kernel_size = 5
-        # hparams.embed_size = 256
-        # hparams.summ_type = 'rnn'
-        # hparams.combined_training=False
-        # hparams.train_on_humming=True
         dummy_hparams = HParams()
         for key in vars(dummy_hparams):
             if not hasattr(hparams, key):
@@ -472,23 +368,13 @@ if __name__ == '__main__':
     for attr_key in vars(args):
         if getattr(args, attr_key) is not None and attr_key in vars(hparams):
             setattr(hparams, attr_key, getattr(args, attr_key))
-        # hparams.out_size = args.out_size
-        # hparams.conv_size = args.conv_size
-        # hparams.learning_rate = args.learning_rate
-        # hparams.iters_per_checkpoint = args.iters_per_checkpoint
-        # hparams.epochs = args.epochs
 
-    # os.environ["CUDA_VISIBLE_DEVICES"]=str(args.device)
     torch.backends.cudnn.enabled = hparams.cudnn_enabled
-    torch.backends.cudnn.benchmark = hparams.cudnn_benchmark
     if not hparams.data_parallel and not hparams.in_meta:
         os.environ["CUDA_VISIBLE_DEVICES"]=str(args.device)
     
     output_directory = Path(args.output_directory) / convert_hparams_to_string(hparams)
 
-    print("Dynamic Loss Scaling:", hparams.dynamic_loss_scaling)
     print("cuDNN Enabled:", hparams.cudnn_enabled)
-    print("cuDNN Benchmark:", hparams.cudnn_benchmark)
-
     
     train(output_directory, args.log_directory, args.checkpoint_path, hparams)

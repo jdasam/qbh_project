@@ -18,7 +18,10 @@ import pandas as pd
 import humming_data_utils as utils
 import monitoring
 
-
+class WrappedModel(torch.nn.Module):
+    def __init__(self, module):
+        super(WrappedModel, self).__init__()
+        self.module = module 
 
 
 def load_model(ckpt_dir):
@@ -26,9 +29,15 @@ def load_model(ckpt_dir):
     # hparams = load_hparams(model_path / 'hparams.dat')
     with open(model_path / 'hparams.dat', 'rb') as f:
         hparams = pickle.load(f)
-    model = CnnEncoder(hparams).cuda()
-    model, _, _, _ = load_checkpoint(model_path/'checkpoint_best.pt', model, None, train_on_humming=True)
+    model = CnnEncoder(hparams)
 
+    try:
+        model, _, _, _ = load_checkpoint(model_path/'checkpoint_best.pt', model, None, train_on_humming=True)
+    except:
+        model = WrappedModel(model)
+        model, _, _, _ = load_checkpoint(model_path/'checkpoint_best.pt', model, None, train_on_humming=True)
+        model = model.module
+    model = model.cuda()
     return model
 
 
@@ -41,7 +50,7 @@ def prepare_dataset(data_dir='/home/svcapp/userdata/flo_data_backup/', selected_
 
     song_ids = get_song_ids_of_selected_genre(metadata, selected_genre=selected_genres)
     song_ids += humm_ids
-    # song_ids = humm_ids
+    song_ids = humm_ids
     # song_ids = [427396913, 5466183, 30894451, 421311716, 420497440]
     entireset = WindowedContourSet(data_dir, aug_weights=[], song_ids=song_ids, set_type='entire', pre_load=False, num_aug_samples=0, num_neg_samples=0, min_vocal_ratio=min_vocal_ratio)
 
@@ -75,6 +84,7 @@ def evaluate(model, humm_test_loader, total_embs, total_song_ids, unique_ids, in
     total_rank = []
     total_rec_slices = []
     total_slice_pos_by_song = total_slice_pos[index_by_id]
+    total_corresp_similarity = []
     with torch.no_grad():
     #     total_embs, total_song_ids = get_contour_embeddings(model, entire_loader)
         for j, batch in enumerate(humm_test_loader):
@@ -97,6 +107,7 @@ def evaluate(model, humm_test_loader, total_embs, total_song_ids, unique_ids, in
             total_recommends.append(recommends)
             total_test_ids.append(song_ids)
             total_rank.append(max_rank.item())
+            total_corresp_similarity.append(max_similarity)
 
             rec_total_slice = total_slice_pos_by_song[rec_ids_position.cpu().numpy().squeeze()]
             rec_max_ids = max_ids[0, rec_ids_position].cpu().numpy().squeeze()
@@ -109,9 +120,10 @@ def evaluate(model, humm_test_loader, total_embs, total_song_ids, unique_ids, in
     total_recommends = torch.cat(total_recommends, dim=0).cpu().numpy()
     total_test_ids = torch.cat(total_test_ids, dim=0).cpu().numpy()
     total_rec_slices = np.asarray(total_rec_slices)
+    total_corresp_similarity = np.asarray(total_corresp_similarity)
     mrr_score = np.mean(1 / (np.asarray(total_rank)+1))
     print('mrr: ', mrr_score)
-    return score, mrr_score, total_recommends, total_test_ids, total_rank, total_rec_slices
+    return score, mrr_score, total_recommends, total_test_ids, total_rank, total_rec_slices, total_corresp_similarity
 
 def get_index_by_id(total_song_ids):
     out = []
@@ -135,14 +147,14 @@ def convert_result_to_dict(ids, ranks, meta):
     return dict(out)
 
 
-def convert_result_to_rec_title(total_test_ids, total_recommends, total_rank, meta, humm_meta, k=3):
+def convert_result_to_rec_title(total_test_ids, total_recommends, total_rank, total_corresp_similarity, meta, humm_meta, k=3):
     out = {}
     for idx in total_test_ids:
         out[meta[idx]['artist_name'] + ' - ' + meta[idx]['track_name']] = [idx] + [ [] for i in range(5)]
     
-    for idx, rec, r, humm in zip(total_test_ids, total_recommends, total_rank, humm_meta):
+    for idx, rec, r, sim, humm in zip(total_test_ids, total_recommends, total_rank, total_corresp_similarity, humm_meta):
         target = out[meta[idx]['artist_name'] + ' - ' + meta[idx]['track_name']]
-        string =  "\n".join([f'Rec rank: {r+1}'] + [monitoring.id_to_name(idx, meta) for idx in rec[:k]]
+        string =  "\n".join([f'Rec rank: {r+1}'] + ["Similarity with Orig: {:.4f}".format(sim)] + [monitoring.id_to_name(idx, meta) for idx in rec[:k]]
                             + [f'Group: {humm["singer_group"]}', f'Singer ID: {humm["singer_id"]}', f'Gender: {humm["singer_gender"]}', f'Humm type: {humm["humming_type"]}'])
         if humm['singer_group'] == 'P':
             if target[1] == []:
@@ -182,7 +194,8 @@ if __name__ == "__main__":
 
 
     # worker_ids = [401032, 480785, 482492, 482457, 483559, 483461]
-    worker_ids = [483559, 483461]
+    # worker_ids = [483559, 483461]
+    worker_ids = [485391, 485399]
     # worker_ids = [482492]
     model_dir = Path(args.model_dir)
     for id in worker_ids:
@@ -193,10 +206,10 @@ if __name__ == "__main__":
         model = load_model(ckpt_dir)
         total_embs, total_song_ids = get_contour_embeddings(model, entire_loader)
         unique_ids, index_by_id = get_index_by_id(total_song_ids)
-        score, mrr_score, total_recommends, total_test_ids, total_rank, total_rec_slices = evaluate(model, humm_test_loader, total_embs, total_song_ids, unique_ids, index_by_id, total_slice_pos)
+        score, mrr_score, total_recommends, total_test_ids, total_rank, total_rec_slices, total_corresp_similarity = evaluate(model, humm_test_loader, total_embs, total_song_ids, unique_ids, index_by_id, total_slice_pos)
         
         out = convert_result_to_dict(total_test_ids, total_rank, meta)
-        detailed_out = convert_result_to_rec_title(total_test_ids, total_recommends, total_rank, meta, humm_meta)
+        detailed_out = convert_result_to_rec_title(total_test_ids, total_recommends, total_rank, total_corresp_similarity, meta, humm_meta)
             
         dataframe = pd.DataFrame(detailed_out).transpose()
         dataframe.insert(1, 'Class', [flo_test_meta[x]['해당 요건'] for x in dataframe[0].values])

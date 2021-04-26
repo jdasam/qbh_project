@@ -31,15 +31,10 @@ class ContourEncoder(nn.Module):
         out = self(batch)
         out = out.view([-1, 1+self.num_pos_samples+self.num_neg_samples, out.shape[1]])
         return out[:,0:1,:], out[:,1:1+self.num_pos_samples,:], out[:,1+self.num_pos_samples:,:]
-        # seq_unpacked, lens_unpacked = torch.nn.utils.rnn.pad_packed_sequence(out, batch_first=True)
-        # seq_unpacked = self.fc(seq_unpacked)
-        # seq_unpacked = seq_unpacked.view([-1, 1+self.num_pos_samples+self.num_neg_samples, seq_unpacked.shape[1],seq_unpacked.shape[2]])
-        # return seq_unpacked[:,0:1,:], seq_unpacked[:,1:1+self.num_pos_samples,:], seq_unpacked[:,1+self.num_pos_samples:,:]
-
 
 
 class CnnEncoder(nn.Module):
-    def __init__(self, hparams, input_size=2):
+    def __init__(self, hparams):
         super(CnnEncoder, self).__init__()
         self.hidden_size = hparams.hidden_size
         self.input_size = hparams.input_size
@@ -211,22 +206,3 @@ class Melody_ResNet(nn.Module):
         reshape_out = block.permute(0,2,3,1).reshape(block.shape[0], 31, numOutput_P)
         lstm_out, _ = self.lstm(reshape_out)
         return lstm_out
-
-
-
-class CombinedModel(nn.Module):
-    def __init__(self, hparams, hparams_b):
-        super(CombinedModel, self).__init__()
-        self.contour_encoder = CnnEncoder(hparams)
-        self.singing_voice_estimator = Melody_ResNet()
-        self.audio_encoder = CnnEncoder(hparams_b)
-
-    def forward(self, audio_input, contour_input):
-        singing_voice_hidden_result = self.singing_voice_estimator(audio_input)
-        audio_embedding = self.audio_encoder(singing_voice_hidden_result)
-        contour_embedding = self.contour_encoder(contour_input)
-
-        return 
-
-    def siamese(self, audio_anchor, contour_pos, audio_neg):
-        return siamese 
