@@ -14,7 +14,7 @@ import torch
 from torch.utils.data import DataLoader
 # from adamp import AdamP
 
-from model import CnnEncoder
+from model import CnnEncoder, CombinedModel
 from data_utils import ContourCollate, HummingPairSet, WindowedContourSet, get_song_ids_of_selected_genre
 from torch.optim.lr_scheduler import StepLR
 from logger import Logger
@@ -71,17 +71,10 @@ def prepare_dataloaders(hparams, valid_only=False):
     song_ids += humm_ids
     entireset = WindowedContourSet(hparams.data_dir, aug_weights=[], song_ids=song_ids, set_type='entire', pre_load=False, num_aug_samples=0, num_neg_samples=0, min_vocal_ratio=hparams.min_vocal_ratio)
 
-    # with open(hparams.contour_path, 'rb') as f:
-    #     # pre_loaded_data = json_load(f)
-    #     pre_loaded_data = pickle.load(f)
-    if hparams.is_scheduled:
-        min_aug=1
-    else:
-        min_aug=10
     aug_weights = make_aug_param_dictionary(hparams)
-    trainset = WindowedContourSet(entireset.contours, aug_weights, set_type='train', pre_load=True, num_aug_samples=hparams.num_pos_samples, num_neg_samples=hparams.num_neg_samples, min_aug=min_aug)
+    trainset = WindowedContourSet(entireset.contours, aug_weights, set_type='train', pre_load=True, num_aug_samples=hparams.num_pos_samples, num_neg_samples=hparams.num_neg_samples)
     # entireset = WindowedContourSet(pre_loaded_data, [], set_type='entire', pre_load=True, num_aug_samples=0, num_neg_samples=0)
-    validset =  WindowedContourSet(entireset.contours, aug_weights, set_type='valid', pre_load=True, num_aug_samples=4, num_neg_samples=0, min_aug=10)
+    validset =  WindowedContourSet(entireset.contours, aug_weights, set_type='valid', pre_load=True, num_aug_samples=4, num_neg_samples=0)
 
     train_loader = DataLoader(trainset, hparams.batch_size, shuffle=True,num_workers=hparams.num_workers,
         collate_fn=ContourCollate(hparams.num_pos_samples, hparams.num_neg_samples, for_cnn=True), pin_memory=True)
@@ -109,6 +102,17 @@ def load_model(hparams):
         model = torch.nn.DataParallel(model)
     return model
 
+def load_end_to_end_model(hparams, checkpoint_path, voice_ckpt_path):
+    hparams_b = copy.copy(hparams)
+    hparams_b.input_size = 512
+    model = CombinedModel(hparams, hparams_b)
+    model.singing_voice_estimator.load_state_dict(torch.load(voice_ckpt_path)['state_dict'])
+    model.contour_encoder.load_state_dict(torch.load(checkpoint_path)['state_dict'])
+    if hparams.data_parallel:
+        model = torch.nn.DataParallel(model)
+    model = model.cuda()
+    return model
+
 def load_checkpoint(checkpoint_path, model, optimizer, train_on_humming=False):
     assert os.path.isfile(checkpoint_path)
     print("Loading checkpoint '{}'".format(checkpoint_path))
@@ -126,10 +130,14 @@ def load_checkpoint(checkpoint_path, model, optimizer, train_on_humming=False):
     return model, optimizer, learning_rate, iteration
 
 def save_checkpoint(model, optimizer, learning_rate, iteration, filepath):
+    if hasattr(model, 'module'):
+        state_dict = model.module.state_dict()
+    else:
+        state_dict = model.state_dict()
     print("Saving model and optimizer state at iteration {} to {}".format(
         iteration, filepath))
     torch.save({'iteration': iteration,
-                'state_dict': model.state_dict(),
+                'state_dict': state_dict,
                 'optimizer': optimizer.state_dict(),
                 'learning_rate': learning_rate}, filepath)
 
@@ -147,6 +155,22 @@ def load_hparams(checkpoint_path):
     with open(hparams_path, 'rb') as f:
         return pickle.load(f)
 
+def freeze_model(model):
+    if hasattr(model, 'module'):
+        if hasattr(model.module, 'freeze_except_audio_encoder'):
+            model.module.freeze_except_audio_encoder()
+    else:
+        if hasattr(model, 'freeze_except_audio_encoder'):
+            model.freeze_except_audio_encoder()
+
+def unfreeze_model(model):
+    if hasattr(model, 'module'):
+        if hasattr(model.module, 'unfreeze_parameters'):
+            model.module.unfreeze_parameters()
+    else:
+        if hasattr(model, 'unfreeze_parameters'):
+            model.unfreeze_parameters()
+
 def convert_hparams_to_string(hparams):
     out_string =  '{}_hidden{}_lr{}_{}/'.format(
         hparams.model_code, 
@@ -158,19 +182,6 @@ def convert_hparams_to_string(hparams):
         out_string = f"worker_{str(worker.id)}_{out_string}"
     return out_string
 
-def validate_classification_error(predicted, answer, threshold=0.6):
-    predicted = predicted > threshold
-    num_prediction = torch.sum(predicted)
-    num_true = torch.sum(answer)
-    num_correct = torch.sum(predicted * answer)
-
-    if num_correct == 0:
-        return torch.zeros(1)
-
-    precision = num_correct / num_prediction
-    recall = num_correct / num_true
-    
-    return 2* precision * recall / (precision + recall) 
 
 def cal_ndcg_of_loader(model, val_loader, total_embs, total_song_ids):
     valid_score = 0
@@ -210,21 +221,14 @@ def validate(model, val_loader, entire_loader, logger, epoch, iteration, hparams
         for key in valid_score.keys():
             score_string += "/ {}: {:5f}".format(key, valid_score[key])
         print(score_string)
-    # if 'siamese' in hparams.model_code:
-    #     print("Validation loss {}: {:9f}  ".format(iteration, valid_ndcg))
-    # else:
-    #     print("Valdiation Score {}: {:5f} ".format(iteration, valid_ndcg))
-    #     valid_ndcg = -valid_ndcg
-    # audio_sample = valset.convert_spec_to_wav(y_pred.squeeze(0).cpu().numpy())
     if hparams.in_meta:
-        # results = {'validation_score': valid_score}
         response = scalars.send_valid_result(worker.id, epoch, iteration, valid_score)
     else:
         logger.log_validation(valid_score, model, iteration)
 
     return valid_score[record_key]
 
-def train(output_directory, log_directory, checkpoint_path, hparams):
+def train(output_directory, log_directory, checkpoint_path, voice_ckpt_path, hparams):
     """Training and validation logging results to tensorboard
 
     Params
@@ -237,7 +241,10 @@ def train(output_directory, log_directory, checkpoint_path, hparams):
 
     torch.manual_seed(hparams.seed)
     torch.cuda.manual_seed(hparams.seed)
-    model = load_model(hparams)
+    if hparams.end_to_end:
+        model = load_model(hparams, checkpoint_path, voice_ckpt_path)
+    else:
+        model = load_model(hparams)
     learning_rate = hparams.learning_rate
     optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate,
                                 weight_decay=hparams.weight_decay)
@@ -272,6 +279,7 @@ def train(output_directory, log_directory, checkpoint_path, hparams):
     scheduler = StepLR(optimizer, step_size=hparams.learning_rate_decay_steps,
                        gamma=hparams.learning_rate_decay_rate)
     model.train()
+    freeze_model(model)
     criterion = SiameseLoss(margin=hparams.loss_margin, use_euclid=hparams.use_euclid, use_elementwise=hparams.use_elementwise_loss)
     best_valid_score = 0
     # ================ MAIN TRAINNIG LOOP! ===================
@@ -307,6 +315,7 @@ def train(output_directory, log_directory, checkpoint_path, hparams):
                     fine_optimizer = torch.optim.Adam(fine_tune_model.parameters(), lr=fine_learning_rate,
                                 weight_decay=hparams.weight_decay)
                     fine_tune_model.train()
+                    unfreeze_model(fine_tune_model)
                     for fine_epoch in range(hparams.epoch_for_humm_train):
                         for batch in humm_train_loader:
                             fine_tune_model.zero_grad()
@@ -319,6 +328,7 @@ def train(output_directory, log_directory, checkpoint_path, hparams):
                     valid_score = validate(fine_tune_model, humm_val_loader, entire_loader, logger, epoch, iteration, hparams, record_key='humm_validation_score')
                     model = model.to('cuda')
                     model, optimizer, learning_rate, iteration = load_checkpoint(temp_check_path, model, optimizer)
+                    freeze_model(model)
                     fine_tune_model = fine_tune_model.to('cpu')
                     orig_valid_score = validate(model, val_loader, entire_loader, logger, epoch, iteration, hparams, record_key='orig_validation_score')
                     if hparams.in_meta:
@@ -336,11 +346,7 @@ def train(output_directory, log_directory, checkpoint_path, hparams):
                     checkpoint_path = output_directory / 'checkpoint_last.pt'
                     save_checkpoint(fine_tune_model, optimizer, learning_rate, iteration,
                                     checkpoint_path)
-                # torch.cuda.empty_cache()
-
-
             iteration += 1
-        # train_loader.dataset.min_aug = 1 + iteration // 75000
 
 
 if __name__ == '__main__':

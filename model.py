@@ -2,6 +2,8 @@ import torch
 import torch.nn as nn
 import math
 import random
+from nnAudio import Spectrogram
+
 
 from torch.nn.modules.pooling import MaxPool1d
 from module import ConvNorm, Res_1d
@@ -206,3 +208,66 @@ class Melody_ResNet(nn.Module):
         reshape_out = block.permute(0,2,3,1).reshape(block.shape[0], 31, numOutput_P)
         lstm_out, _ = self.lstm(reshape_out)
         return lstm_out
+
+class Melody_ResNet_with_Spec(Melody_ResNet):
+    def __init__(self):
+        super(Melody_ResNet_with_Spec,self).__init__()
+        self.spec_layer = Spectrogram.STFT(n_fft=1024, freq_bins=None,
+                                hop_length=800, window='hann',
+                                freq_scale='no', center=True,
+                                pad_mode='reflect', sr=8000, trainable=False,
+                                output_format='Magnitude')
+    
+    def forward(self, input):
+        spec = self.spec_layer(input)
+        spec = torch.log10(spec + 1e-10)
+        spec = spec.permute(0,2,1).unsqueeze(1)
+        block = self.block(spec) # channel first for torch
+        numOutput_P = block.shape[1] * block.shape[3]
+        # if block.shape[2] % 31 != 0:
+        #     dummy = torch.zeros(block.shape[0], block.shape[1], (block.shape[2]//31+1)*31, block.shape[3])
+        #     dummy[:,:,:block.shape[2]] = block 
+        #     block = dummy
+        reshape_out = block.permute(0,2,3,1).reshape(block.shape[0], -1, numOutput_P)
+        lstm_out, _ = self.lstm(reshape_out)
+        melody_out = self.final(lstm_out)
+        melody_out = torch.softmax(melody_out, dim=-1)
+        return  melody_out, lstm_out
+
+
+class CombinedModel(nn.Module):
+    def __init__(self, hparams, hparams_b):
+        super(CombinedModel, self).__init__()
+        self.contour_encoder = CnnEncoder(hparams)
+        self.singing_voice_estimator = Melody_ResNet_with_Spec()
+        self.audio_encoder = CnnEncoder(hparams_b)
+        self.embed_size = hparams.embed_size
+
+    def freeze_except_audio_encoder(self):
+        for param in self.singing_voice_estimator.parameters():
+            param.requires_grad = False
+        for param in self.contour_encoder.parameters():
+            param.requires_grad = False
+
+    def unfreeze_parameters(self):
+        for param in self.parameters():
+            param.requires_grad = True
+
+    def forward(self, input, num_pos=0, num_neg=0, siamese=False, contour_only=False):
+        if siamese:
+            audio_input, contour_pos_n_neg = input
+            num_batch = audio_input.shape[0]
+            _, voice_hidden = self.singing_voice_estimator(audio_input)
+            audio_embedding = self.audio_encoder(voice_hidden)
+
+            contour_embedding = self.contour_encoder(contour_pos_n_neg)
+            contour_embedding = contour_embedding.view(num_batch, -1 , contour_embedding.shape[-1])
+
+            return audio_embedding, contour_embedding[:,:num_pos], contour_embedding[:,num_pos:]
+        elif contour_only:
+            return self.contour_encoder(input)
+        else:
+            audio_input = input
+            _, voice_hidden = self.singing_voice_estimator(audio_input)
+            audio_embedding = self.audio_encoder(voice_hidden)
+            return audio_embedding

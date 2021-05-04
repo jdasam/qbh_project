@@ -37,7 +37,6 @@ def get_contour_embeddings(model, cmp_loader):
 
     total_embs = torch.zeros([len(cmp_loader.dataset), embed_size]).to('cuda')
     total_song_ids = torch.zeros(len(cmp_loader.dataset),dtype=torch.long)
-    total_song_ids = torch.zeros(len(cmp_loader.dataset),dtype=torch.long)
     current_idx = 0
     model.eval()
     with torch.no_grad():
