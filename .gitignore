@@ -5,3 +5,4 @@
 *.vscode
 /valid_monitoring
 /eval*
+/emb*
