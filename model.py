@@ -7,7 +7,7 @@ from nnAudio import Spectrogram
 
 from torch.nn.modules.pooling import MaxPool1d
 from module import ConvNorm, Res_1d
-from utils import cal_conv_parameters
+from model_utils import cal_conv_parameters
 
 class ContourEncoder(nn.Module):
     def __init__(self, hparams):
@@ -46,11 +46,11 @@ class CnnEncoder(nn.Module):
 
         if hparams.use_pre_encoder:
             self.use_pre_encoder = True
-            self.pre_encoder = nn.Linear(2, self.hidden_size)
+            self.pre_encoder = nn.Linear(self.input_size, self.hidden_size)
             self.cnn_input_size = self.hidden_size
         else:
             self.use_pre_encoder = False
-            self.cnn_input_size = 2
+            self.cnn_input_size = self.input_size
     
         if hparams.use_res:
             module = Res_1d 
@@ -187,7 +187,7 @@ class ResNet_Block(nn.Module):
 
 class Melody_ResNet(nn.Module):
     def __init__(self):
-        super(Melody_ResNet,self).__init__()
+        super().__init__()
         self.block = nn.Sequential(
             ResNet_Block(1, 64),
             ResNet_Block(64, 128),
@@ -208,6 +208,20 @@ class Melody_ResNet(nn.Module):
         reshape_out = block.permute(0,2,3,1).reshape(block.shape[0], 31, numOutput_P)
         lstm_out, _ = self.lstm(reshape_out)
         return lstm_out
+
+    def batch_slice_and_forward(self, input, batch_size=300):
+        total_output = []
+        for i in range(math.ceil(input.shape[0]/batch_size)):
+            block = self.block(input[i*batch_size:(i+1)*batch_size]) # channel first for torch
+            numOutput_P = block.shape[1] * block.shape[3]
+            reshape_out = block.permute(0,2,3,1).reshape(block.shape[0], 31, numOutput_P)
+
+            lstm_out, _ = self.lstm(reshape_out)
+            out = self.final(lstm_out)
+            out = torch.softmax(out, dim=-1)
+            total_output.append(out)
+        return torch.cat(total_output)
+
 
 class Melody_ResNet_with_Spec(Melody_ResNet):
     def __init__(self):
@@ -237,7 +251,7 @@ class Melody_ResNet_with_Spec(Melody_ResNet):
 
 class CombinedModel(nn.Module):
     def __init__(self, hparams, hparams_b):
-        super(CombinedModel, self).__init__()
+        super().__init__()
         self.contour_encoder = CnnEncoder(hparams)
         self.singing_voice_estimator = Melody_ResNet_with_Spec()
         self.audio_encoder = CnnEncoder(hparams_b)
@@ -253,7 +267,7 @@ class CombinedModel(nn.Module):
         for param in self.parameters():
             param.requires_grad = True
 
-    def forward(self, input, num_pos=0, num_neg=0, siamese=False, contour_only=False):
+    def forward(self, input, num_pos=0, siamese=False):
         if siamese:
             audio_input, contour_pos_n_neg = input
             num_batch = audio_input.shape[0]
@@ -264,7 +278,7 @@ class CombinedModel(nn.Module):
             contour_embedding = contour_embedding.view(num_batch, -1 , contour_embedding.shape[-1])
 
             return audio_embedding, contour_embedding[:,:num_pos], contour_embedding[:,num_pos:]
-        elif contour_only:
+        elif input.shape[-1] == 2: # input is N x 2 contour :
             return self.contour_encoder(input)
         else:
             audio_input = input

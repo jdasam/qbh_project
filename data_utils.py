@@ -3,25 +3,27 @@ import torch
 from pathlib import Path
 
 import _pickle as pickle
-from tqdm import tqdm
+from tqdm.auto import tqdm
 import numpy as np
 import random
 import copy
 import melody_augmentation as mel_aug
 from sampling_utils import downsample_contour_array
-from melody_utils import MelodyLoader
-        
+from melody_utils import get_overlapped_contours
+from data_path_utils import song_id_to_pitch_txt_path, song_id_to_audio_path
+from madmom.audio.signal import Signal
+
 
 class WindowedContourSet:
-    def __init__(self, path, aug_weights, song_ids=[], num_aug_samples=4, num_neg_samples=4, quantized=True, pre_load=False, set_type='entire', min_vocal_ratio=0.5):
+    def __init__(self, path, aug_weights, song_ids=[], num_aug_samples=4, num_neg_samples=4, pre_load_data=None, set_type='entire', min_vocal_ratio=0.5):
         self.min_vocal_ratio = min_vocal_ratio
-        if not pre_load:
-            self.path = Path(path)
+        self.path = Path(path)
+        if pre_load_data is None:
             self.melody_txt_list = [song_id_to_pitch_txt_path(self.path, x) for x in song_ids]
-            self.melody_loader = MelodyLoader(in_midi_pitch=True, is_quantized=quantized)
+            # self.melody_loader = MelodyLoader(self.path, min_ratio=min_vocal_ratio)
             self.contours = self.load_melody()
         else:
-            self.contours = path
+            self.contours = pre_load_data
         self.num_neg_samples = num_neg_samples
         self.num_aug_samples = num_aug_samples
         self.aug_keys = ['tempo', 'key', 'std', 'masking', 'pitch_noise', 'fill', 'smoothing', 'absurd_noise']
@@ -41,7 +43,7 @@ class WindowedContourSet:
             self.melody_augmentor = mel_aug.MelodyAugmenter(aug_weights)
 
     def load_melody(self):
-        contours = [self.melody_loader.get_overlapped_contours(txt, min_ratio=self.min_vocal_ratio) for txt in tqdm(self.melody_txt_list)]
+        contours = [get_overlapped_contours(txt, min_ratio=self.min_vocal_ratio) for txt in tqdm(self.melody_txt_list, leave=False)]
         contours = [x for x in contours if x is not None and x != []]
         contours = [y for x in contours for y in x]
         return contours
@@ -231,13 +233,229 @@ class ContourCollate:
             mels = torch.FloatTensor(dummy)
             return mels[:, 0, :, :], mels[:, 1, :, :], mels[:, 2, :, :]
 
+
+
+class AudioSet(WindowedContourSet):
+    def __init__(self, path, aug_weights, song_ids=[], num_aug_samples=4, num_neg_samples=4, pre_load_data=None, set_type='entire', min_vocal_ratio=0.5, sample_rate=8000):
+        # super(AudioSet, self).__init__(path, aug_weights, song_ids, num_aug_samples, num_neg_samples, pre_load, set_type, min_vocal_ratio)    
+        super().__init__(path, aug_weights, song_ids, num_aug_samples, num_neg_samples, pre_load_data, set_type, min_vocal_ratio)    
+        self.sample_rate = sample_rate
+        # self.x_train_mean = np.load('x_data_mean_total_31.npy')
+        # self.x_train_std = np.load('x_data_std_total_31.npy')
+
+    def load_audio(self, song_id, frame_pos):
+        audio_path = song_id_to_audio_path(self.path, song_id)
+        audio_samples = load_audio_sample(audio_path, self.sample_rate)
+        # x_test, x_spec = load_audio_and_get_spec(audio_path, frame_pos)
+        # x_test = (x_test-self.x_train_mean)/(self.x_train_std+0.0001)
+        # x_test = x_test[:, :, :, np.newaxis]
+        return audio_samples[frame_pos[0]//100*self.sample_rate:frame_pos[1]//100*self.sample_rate]
+    
+
+    def __getitem__(self, index):
+        """
+        for training:
+        return: (downsampled_melody, [augmented_melodies], [negative_sampled_melodies])
+        for validation:
+        return: ([augmented_melodies], [selected_song_id])
+        """
+        selected_melody = self.contours[index]['contour']
+        selected_song_id = self.contours[index]['song_id']
+        selected_frame = self.contours[index]['frame_pos']
+        downsampled_melody = downsample_contour_array(selected_melody)
+        if self.set_type != "valid":
+            original_audio = self.load_audio(selected_song_id, selected_frame)
+
+        if self.set_type == 'entire':
+            return original_audio, selected_song_id
+
+        aug_samples = []
+        neg_samples = []
+        # neg_audio_samples = []
         
+        aug_samples = [self.melody_augmentor(selected_melody, self.aug_keys) for i in range(self.num_aug_samples-1)]
+        aug_samples = [downsampled_melody] + aug_samples
+        if self.set_type == 'valid':
+            return aug_samples, [selected_song_id] * len(aug_samples)
+            # return [downsampled_melody] * len(aug_samples), [selected_song_id] * len(aug_samples)
+
+        # sampling negative melodies
+        while len(neg_samples) < self.num_neg_samples:
+            neg_idx = random.randint(0, len(self)-1)
+            if self.contours[neg_idx]['song_id'] != selected_song_id:
+                neg_samples.append(downsample_contour_array(self.contours[neg_idx]['contour'], self.down_f))
+                # neg_audio_samples.append(self.load_audio(self.contours[neg_idx]['song_id'], self.contours[neg_idx]['frame_pos']))
+                # neg_samples.append(self.contours[neg_idx]['song_id'])
+
+        # return original_audio, neg_audio_samples, aug_samples, neg_samples
+        return original_audio, aug_samples, neg_samples
+
+
+class HummingAudioSet(HummingPairSet):
+    def __init__(self, path, contour_pairs, aug_weights, set_type, aug_keys, num_aug_samples=4, num_neg_samples=4, sample_rate=8000):
+        super(HummingAudioSet, self).__init__(contour_pairs, aug_weights, set_type, aug_keys, num_aug_samples=num_aug_samples, num_neg_samples=num_neg_samples)
+        self.sample_rate = sample_rate
+        self.path = Path(path)
+
+
+    def load_audio(self, song_id, time_stamp):
+        audio_path = song_id_to_audio_path(self.path, song_id)
+        audio_samples = load_audio_sample(audio_path, self.sample_rate)
+        return audio_samples[time_stamp[0]*self.sample_rate:time_stamp[1]*self.sample_rate]
+    
+    def __getitem__(self, index):
+        """
+        for training:
+        return: (downsampled_melody, [augmented_melodies], [negative_sampled_melodies])
+        for validation:
+        return: ([augmented_melodies], [selected_song_id])
+        """
+        selected_melody = self.contours[index]['humm']
+        # original_melody = self.contours[index]['orig']
+        selected_song_id = self.contours[index]['meta']['track_id']
+        # orig_ds_melody = downsample_contour_array(original_melody)
+        downsampled_melody = downsample_contour_array(selected_melody)
+        orig_sample = self.load_audio(selected_song_id, [int(x) for x in self.contours[index]['meta']['time_stamp'].split('-')])
+
+        aug_samples = []
+        neg_samples = []
+        # neg_audio_samples = []
+        
+        if self.set_type == 'valid' or self.set_type == 'test':
+            return downsampled_melody, selected_song_id
+            # return [downsampled_melody] * len(aug_samples), [selected_song_id] * len(aug_samples)
+        
+        aug_samples = [self.melody_augmentor(selected_melody,self.aug_keys) for i in range(self.num_aug_samples-1)]
+        aug_samples = [downsampled_melody] + aug_samples
+
+        # sampling negative melodies
+        while len(neg_samples) < self.num_neg_samples:
+            neg_idx = random.randint(0, len(self)-1)
+            if self.contours[neg_idx]['meta']['track_id'] != selected_song_id:
+                neg_samples.append(downsample_contour_array(self.contours[neg_idx]['humm'], self.down_f))
+                # neg_audio_samples.append(self.load_audio(self.contours[neg_idx]['meta']['track_id'], [int(x) for x in self.contours[neg_idx]['meta']['time_stamp'].split('-')]))
+
+        return orig_sample, aug_samples, neg_samples
+
+
+
+class AudioContourCollate:
+    # def __init__(self, num_pos, num_neg, for_cnn=False):
+    #     self.num_pos = num_pos
+    #     self.num_neg = num_neg
+
+    def to_tensor_list(self, alist):
+        return [torch.Tensor(x) for x in alist]
+
+    def make_tensor_with_auto_pad(self, alist):
+        max_length = max([len(x) for x in alist])
+        dummy = torch.zeros(len(alist), max_length)
+        for i in range(len(alist)):
+            seq = alist[i]
+            left_margin = (max_length - seq.shape[0]) // 2
+            dummy[i,left_margin:left_margin+seq.shape[0]] = seq
+        return dummy
+
+
+    def __call__(self, batch):
+        # batch: [(audio_anchor, positive_contour, negative_contour) ]* num_batch
+        # anchor_audio = torch.Tensor([x[0] for x in batch])
+        anchor_audio = [torch.Tensor(np.copy(x[0])) for x in batch]
+        anchor_audio = self.make_tensor_with_auto_pad(anchor_audio)
+        # anchor_and_neg_audio = [ [torch.Tensor(np.copy(x[0]))] + self.to_tensor_list(x[1]) for x in batch]
+        # anchor_and_neg_audio = [y for x in anchor_and_neg_audio for y in x]
+        # anchor_and_neg_audio = self.make_tensor_with_auto_pad(anchor_and_neg_audio)
+
+        # total = [self.to_tensor_list(x[2]) + self.to_tensor_list(x[3]) for x in batch ]
+        total = [self.to_tensor_list(x[1]) + self.to_tensor_list(x[2]) for x in batch ]
+        total_flattened = [y for x in total for y in x]
+        max_length = max([len(x) for x in total_flattened])
+        dummy = torch.zeros(len(total_flattened), max_length, 2)
+        for i in range(len(total_flattened)):
+            seq = total_flattened[i]
+            left_margin = (max_length - seq.shape[0]) // 2
+            dummy[i,left_margin:left_margin+seq.shape[0],:] = seq
+        # return anchor_and_neg_audio, dummy
+        return anchor_audio, dummy
+
+class AudioCollate:
+    def __call__(self, batch):
+        out = [torch.Tensor(x[0]) for x in batch]
+        song_ids = torch.LongTensor([x[1] for x in batch])
+
+        max_length = max([len(x) for x in out])
+        dummy = torch.zeros(len(out), max_length)
+        for i in range(len(out)):
+            seq = out[i]
+            left_margin = (max_length - seq.shape[0]) // 2
+            dummy[i,left_margin:left_margin+seq.shape[0]] = seq
+        return dummy, song_ids
+
+
+
+class AudioTestSet:
+    def __init__(self, path, song_ids=[], sample_rate=8000):
+        self.path = Path(path)
+        self.sample_rate = sample_rate
+        self.song_ids = song_ids
+
+        self.slice_infos = [self.cal_slice_position(x) for x in self.song_ids]
+        self.slice_infos = [y for x in self.slice_infos for y in x]
+
+    def cal_slice_position(self, song_id):
+        audio_path = song_id_to_audio_path(self.path, song_id)
+        audio_samples = load_audio_sample(audio_path, self.sample_rate)
+        num_window = (len(audio_samples) - self.sample_rate * 20) // (self.sample_rate * 5) + 1
+        return [(song_id, i * self.sample_rate * 5, i * self.sample_rate * 5 + 20 * self.sample_rate) for i in range(num_window)]
+
+    # def cal_num_window(self, song_id):
+    #     audio_path = song_id_to_audio_path(self.path, song_id)
+    #     audio_samples = load_audio_sample(audio_path, self.sample_rate)
+    #     return (len(audio_samples) - self.sample_rate * 20) // (self.sample_rate * 5) + 1
+
+    def load_audio(self, song_id, start, end):
+        audio_path = song_id_to_audio_path(self.path, song_id)
+        audio_samples = load_audio_sample(audio_path, self.sample_rate)
+        return audio_samples[start:end]
+
+    def __getitem__(self, index):
+        sel_id, sel_start, sel_end = self.slice_infos[index]
+        audio = self.load_audio(sel_id, sel_start, sel_end)
+        return audio, sel_id
+
+    def __len__(self):
+        return len(self.slice_infos)
+    
 
 def load_melody(path):
     with open(path, "r") as f:
         lines = f.readlines()
     return [float(x.split(' ')[1][:-2]) for x in lines]
 
+
+def load_audio_sample(path, sr=8000):
+    '''
+    For faster loading, the audio samples are decoded and saved in npy file
+    '''
+    npy_path = path.with_suffix('.npy')
+    if npy_path.exists():
+        try:
+            y = np.load(npy_path)
+        except:
+            print(f"error occurned on {npy_path}")
+            y = Signal(str(path), sample_rate=sr, dtype=np.float32, num_channels=1)
+            np.save(npy_path, y, allow_pickle=False)
+    else:
+        y = Signal(str(path), sample_rate=sr, dtype=np.float32, num_channels=1)
+        np.save(npy_path, y, allow_pickle=False)
+    
+    # Code below is to prevent y from being saved in spectrogram form. 
+    # Couldn't find the reason why y is saved in spectrogram
+    if len(y)==128:
+        y = Signal(str(path), sample_rate=sr, dtype=np.float32, num_channels=1)
+        np.save(npy_path, y, allow_pickle=False)
+        print(path, npy_path)
+    return np.copy(y)
 
 def check_song_in_genre(song, genre_list):
     for genre_id in song['genre_id_basket']:
@@ -252,14 +470,7 @@ def get_song_ids_of_selected_genre(meta, selected_genre):
         songs = [x['track_id'] for x in meta if check_song_in_genre(x, selected_genre)]       
     return songs
 
-def song_id_to_pitch_txt_path(path, song_id):
-    # path: pathlib.Path()
-    txt_path = path / str(song_id)[:3] / str(song_id)[3:6] / '{}_pitch.txt'.format(song_id)
-    # txt_path = path / str(song_id)[:3] / str(song_id)[3:6] / 'pitch_{}.txt'.format(song_id)
-    if not txt_path.exists():
-        txt_path = path / 'qbh' / f'{song_id}_pitch.txt'
-    return txt_path
-    # return path  / f'pitch_{song_id}.txt'
+
 
 if __name__ == '__main__':
     with open('flo_metadata.dat', 'rb') as f:

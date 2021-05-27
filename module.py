@@ -1,10 +1,9 @@
-import torch
 import torch.nn as nn
 
 
 class ConvNorm(nn.Module):
     def __init__(self, in_channels, out_channels, kernel_size, padding):
-        super(ConvNorm, self).__init__()
+        super().__init__()
         self.conv_norm = nn.Sequential(
             nn.Conv1d(in_channels, out_channels, kernel_size=kernel_size, padding=padding),
             nn.BatchNorm1d(out_channels),
@@ -17,7 +16,7 @@ class ConvNorm(nn.Module):
 
 class Res_1d(nn.Module):
     def __init__(self, input_channels, output_channels, shape, padding):
-        super(Res_1d, self).__init__()
+        super().__init__()
         # convolution
         self.conv_1 = nn.Conv1d(input_channels, output_channels, shape, padding=padding)
         self.bn_1 = nn.BatchNorm1d(output_channels)

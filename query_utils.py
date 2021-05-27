@@ -3,7 +3,6 @@ import copy
 from pydub import AudioSegment
 from pathlib import Path
 from tqdm import tqdm
-from melody_utils import binary_index
 from time import time
 from sampling_utils import downsample_contour
 

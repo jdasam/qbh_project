@@ -5,9 +5,9 @@ import matplotlib.pyplot as plt
 from pydub import AudioSegment
 from pathlib import Path
 
-from data_utils import song_id_to_pitch_txt_path
+from data_path_utils import song_id_to_pitch_txt_path        
 from humming_data_utils import load_crepe_pitch as load_humm_melody, get_orig_audio_path_by_id, audio_path_to_pitch_path
-from melody_utils import pitch_array_to_formatted, load_melody, scale_to_midi
+from melody_utils import pitch_array_to_formatted, load_melody, scale_to_midi, MEAN, STD
 from sampling_utils import downsample_contour_array
 
 def generate_sine_wav(melody, frame_rate=10, sr=44100):
@@ -17,7 +17,7 @@ def generate_sine_wav(melody, frame_rate=10, sr=44100):
     sin_wav = 0.9 * np.sin(phi)
     return sin_wav
 
-def normalized_vec_to_orig(norm_contour, mean_pitch=61.702336487738215, std=5.5201786930065415):
+def normalized_vec_to_orig(norm_contour, mean_pitch=MEAN, std=STD):
     orig = np.zeros_like(norm_contour[:,0])
     orig[norm_contour[:,1]==1] = 440 * 2 ** ((norm_contour[norm_contour[:,1]==1, 0] * std + mean_pitch -69) / 12)
 #     orig[norm_contour==-100] = 0
@@ -34,6 +34,20 @@ def id_to_name(idx, meta):
     else:
         name = f'{meta[idx]["artist_name_basket"][0]} - {meta[idx]["track_name"]}'
     return name.replace("/", "_") 
+
+def get_audio_and_sine_from_contour_data(contour_data, db_path):
+    '''
+    contour_data: {'contour': numpy array, 'song_id': track_id, 'frame_pos': (slice_start, slice_end) in 10ms}
+    db_path = Path(database path)
+    '''
+    idx = contour_data['song_id']
+    audio_path = get_orig_audio_path_by_id(idx, db_path)
+    orig_audio = AudioSegment.from_file(audio_path, 'm4a').set_frame_rate(44100).set_channels(1)._data
+    rec_decoded = np.frombuffer(orig_audio, dtype=np.int16) / 32768
+    rec_slice = rec_decoded[contour_data['frame_pos'][0]*441:contour_data['frame_pos'][1]*441]
+    contour_wav = generate_sine_wav(normalized_vec_to_orig(contour_data['contour']), frame_rate=100, sr=44100)
+
+    return rec_slice, contour_wav
 
 def save_test_result_in_wav(total_recommends, total_test_ids, total_rank, total_rec_slices, meta, humm_meta, out_dir, db_path=Path('/home/svcapp/t2meta/flo_new_music/music_100k/')):
     for i in range(len(humm_meta)):

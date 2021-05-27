@@ -107,7 +107,7 @@ def make_humming_sample_dictionary(path, df_a, df_b):
     
 
 def load_meta_from_excel(xlsx_path="/home/svcapp/userdata/humming_db/Spec.xlsx", meta_path="flo_metadata.dat", meta_100_path='meta_100.dat'):
-    xls_file = pd.ExcelFile(xlsx_path)
+    xls_file = pd.ExcelFile(str(xlsx_path))
     sheets = pd.read_excel(xls_file, sheet_name=None, header=1)
     exp_id = list(sheets.keys())
     selected_100 = [sheets[x] for x in exp_id[:4]]

@@ -10,21 +10,17 @@ class HParams:
         self.cudnn_enabled=True
         self.cudnn_benchmark=False
         self.data_parallel=False
+        self.train_on_humming = False
+        self.combined_training = True
         # ignore_layers=['embedding.weight']
 
         ################################
         # Data Parameters             #
-        ################################
-        self.flo_dir_path = "/home/svcapp/flo_ssd/"
-        self.idx_dict_fname = "/home/svcapp/userdata/musicai/melon/index_dict.dat"
-        self.mel_dir_path = "/home/svcapp/userdata/musicai/melon/arena_mel"
-        self.pitch_path = '/home/svcapp/userdata/flo_melody/melody_subgenre.dat'
-        # self.contour_path = '/home/svcapp/userdata/flo_melody/contour_subgenre_norm.json'
-        self.contour_path = '/home/svcapp/userdata/flo_melody/overlapped.dat'
+        ################################ 
         self.humming_path = '/home/svcapp/userdata/flo_melody/humming_db_contour_pairs.dat'
         self.data_dir = '/home/svcapp/userdata/flo_pitch/'
-        self.train_on_humming = False
-        self.combined_training = True
+        self.meta_path = 'flo_metadata_220k.dat'
+        self.voice_ckpt_path = '/output/voice_estimator_0.0001_210311-175053/checkpoint_last.pt'
 
         ################################
         # Model Parameters             #

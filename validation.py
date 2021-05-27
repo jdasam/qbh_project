@@ -65,3 +65,36 @@ def cal_ndcg_single(rec, answer):
         return rel_recs[0]
     # dcg = sum(rel_recs)
     # return dcg
+
+
+def cal_ndcg_of_loader(model, val_loader, total_embs, total_song_ids, num_recom=50):
+    valid_score = 0
+    for j, batch in enumerate(val_loader):
+        contours, song_ids = batch
+        anchor = model(contours.cuda())
+        anchor_norm = anchor / anchor.norm(dim=1)[:, None]
+        similarity = torch.mm(anchor_norm, total_embs.transpose(0,1))
+        recommends = torch.topk(similarity, k=num_recom, dim=-1)[1]
+        recommends = total_song_ids[recommends]
+        ndcg = [cal_ndcg_single(recommends[i,:], song_ids[i]) for i in range(recommends.shape[0])]
+        ndcg = sum(ndcg) / len(ndcg)
+        valid_score += ndcg
+    valid_score = valid_score/(j+1)
+    return valid_score
+
+
+def cal_mrr_of_loader(model, val_loader, total_embs, total_song_ids):
+    valid_score = 0
+    for j, batch in enumerate(val_loader):
+        contours, song_ids = batch
+        anchor = model(contours.cuda())
+        anchor_norm = anchor / anchor.norm(dim=1)[:, None]
+        similarity = torch.mm(anchor_norm, total_embs.transpose(0,1))
+        corresp_melody_ids = [torch.where(total_song_ids==x)[0] for x in song_ids]
+        max_corresp_similarities = torch.Tensor([torch.max(similarity[:,x]) for x in corresp_melody_ids])
+        search_rank = torch.sum(similarity.cpu() - max_corresp_similarities.unsqueeze(1) > 0, dim=1)
+        mrr_score = 1/(search_rank+1)
+        valid_score += torch.mean(mrr_score).item()
+    valid_score /= j+1
+    return valid_score
+

@@ -3,31 +3,27 @@ import time
 import argparse
 import _pickle as pickle
 import copy
+import random
 
 from math import inf as mathinf
-import numpy as np
 from tqdm import tqdm
 from pathlib import Path
 from datetime import datetime
 
 import torch
 from torch.utils.data import DataLoader
-# from adamp import AdamP
 
 from model import CnnEncoder, CombinedModel
-from data_utils import ContourCollate, HummingPairSet, WindowedContourSet, get_song_ids_of_selected_genre
+from data_utils import ContourCollate, HummingPairSet, WindowedContourSet, get_song_ids_of_selected_genre, AudioSet, AudioCollate, AudioContourCollate, HummingAudioSet
 from torch.optim.lr_scheduler import StepLR
 from logger import Logger
 from hparams import HParams
 from loss_function import SiameseLoss
-from validation import get_contour_embeddings, cal_ndcg, cal_ndcg_single
-from parser import create_parser
-
-from metalearner.common.config import experiment, worker
-from metalearner.api import scalars
+from validation import get_contour_embeddings, cal_mrr_of_loader
+from parser_util import create_parser
 
 
-def prepare_humming_db_loaders(hparams, return_test=False):
+def prepare_humming_db_loaders(hparams):
     with open(hparams.humming_path, "rb") as f:
         contour_pairs = pickle.load(f)
     aug_keys = ['tempo', 'key', 'std', 'pitch_noise']
@@ -36,55 +32,70 @@ def prepare_humming_db_loaders(hparams, return_test=False):
     if hparams.add_smoothing:
         aug_keys.append('smoothing')
     aug_weights = make_aug_param_dictionary(hparams)
-    train_set = HummingPairSet(contour_pairs, aug_weights, "train", aug_keys, num_aug_samples=hparams.num_pos_samples, num_neg_samples=hparams.num_neg_samples)
-    valid_set = HummingPairSet(contour_pairs, [], "valid", aug_keys, num_aug_samples=0, num_neg_samples=0)
-    train_loader = DataLoader(train_set, hparams.batch_size, shuffle=True,num_workers=hparams.num_workers,
-        collate_fn=ContourCollate(hparams.num_pos_samples, hparams.num_neg_samples, for_cnn=True), pin_memory=True)
-    valid_loader = DataLoader(valid_set, hparams.valid_batch_size, shuffle=False,num_workers=hparams.num_workers,
-        collate_fn=ContourCollate(0, 0, for_cnn=True), pin_memory=True, drop_last=False)
-    with open(hparams.contour_path, 'rb') as f:
-        # pre_loaded_data = json_load(f)
-        pre_loaded_data = pickle.load(f)
-    entireset = WindowedContourSet(pre_loaded_data, [], set_type='entire', pre_load=True, num_aug_samples=0, num_neg_samples=0)
-    entire_loader = DataLoader(entireset, hparams.valid_batch_size, shuffle=False,num_workers=hparams.num_workers,
-        collate_fn=ContourCollate(0, 0, for_cnn=True), pin_memory=True, drop_last=False)
 
-    if return_test:
-        test_set = HummingPairSet(contour_pairs, [], "test", [], num_aug_samples=0, num_neg_samples=0)
-        test_loader = DataLoader(test_set, hparams.valid_batch_size, shuffle=False,num_workers=hparams.num_workers,
+
+    if hparams.end_to_end:
+        train_set = HummingAudioSet(hparams.data_dir, contour_pairs, aug_weights, "train", aug_keys, num_aug_samples=hparams.num_pos_samples, num_neg_samples=hparams.num_neg_samples)
+        valid_set = HummingAudioSet(hparams.data_dir, contour_pairs, [], "valid", aug_keys, num_aug_samples=0, num_neg_samples=0)
+        train_loader = DataLoader(train_set, hparams.batch_size, shuffle=True,num_workers=hparams.num_workers,
+            collate_fn=AudioContourCollate(), pin_memory=True)
+        valid_loader = DataLoader(valid_set, hparams.valid_batch_size, shuffle=False,num_workers=hparams.num_workers,
             collate_fn=ContourCollate(0, 0, for_cnn=True), pin_memory=True, drop_last=False)
-        return test_loader, entire_loader
     else:
-        return train_loader, valid_loader, entire_loader
+        train_set = HummingPairSet(contour_pairs, aug_weights, "train", aug_keys, num_aug_samples=hparams.num_pos_samples, num_neg_samples=hparams.num_neg_samples)
+        valid_set = HummingPairSet(contour_pairs, [], "valid", aug_keys, num_aug_samples=0, num_neg_samples=0)
+        train_loader = DataLoader(train_set, hparams.batch_size, shuffle=True,num_workers=hparams.num_workers,
+            collate_fn=ContourCollate(hparams.num_pos_samples, hparams.num_neg_samples, for_cnn=True), pin_memory=True)
+        valid_loader = DataLoader(valid_set, hparams.valid_batch_size, shuffle=False,num_workers=hparams.num_workers,
+            collate_fn=ContourCollate(0, 0, for_cnn=True), pin_memory=True, drop_last=False)
+    return train_loader, valid_loader
 
-        
-def prepare_dataloaders(hparams, valid_only=False):
-    # Get data, data loaders and collate function ready
-    with open('flo_metadata_220k.dat', 'rb') as f:
+
+def prepare_entire_loader(hparams, add_humm=True, num_song_limit=None):
+    with open(hparams.meta_path, 'rb') as f:
         metadata = pickle.load(f)
     selected_genres = [4, 12, 13, 17, 10, 7,15, 11, 9]
     # selected_genres = [4]
-    with open('humm_db_ids.dat', 'rb') as f:
-        humm_ids = pickle.load(f)
-
     song_ids = get_song_ids_of_selected_genre(metadata, selected_genre=selected_genres)
-    song_ids += humm_ids
-    entireset = WindowedContourSet(hparams.data_dir, aug_weights=[], song_ids=song_ids, set_type='entire', pre_load=False, num_aug_samples=0, num_neg_samples=0, min_vocal_ratio=hparams.min_vocal_ratio)
+    if num_song_limit and len(song_ids) > num_song_limit:
+        song_ids = random.sample(song_ids, num_song_limit)
+    if add_humm:
+        with open('humm_db_ids.dat', 'rb') as f:
+            humm_ids = pickle.load(f)
+        song_ids += humm_ids
 
+    if hparams.end_to_end:
+        entire_set = AudioSet(hparams.data_dir, aug_weights=[], song_ids=song_ids, set_type='entire', num_aug_samples=0, num_neg_samples=0, min_vocal_ratio=hparams.min_vocal_ratio, sample_rate=hparams.sample_rate)
+        entire_loader = DataLoader(entire_set, hparams.valid_batch_size, shuffle=False,num_workers=hparams.num_workers,
+            collate_fn=AudioCollate(), pin_memory=True, drop_last=False)
+    else:
+        entire_set = WindowedContourSet(hparams.data_dir, aug_weights=[], song_ids=song_ids, set_type='entire', num_aug_samples=0, num_neg_samples=0, min_vocal_ratio=hparams.min_vocal_ratio)
+        entire_loader = DataLoader(entire_set, hparams.valid_batch_size, shuffle=False,num_workers=hparams.num_workers,
+            collate_fn=ContourCollate(0, 0, for_cnn=True), pin_memory=True, drop_last=False)
+    return entire_loader
+        
+def prepare_dataloaders(hparams, entire_loader):
+    # Get data, data loaders and collate function ready
     aug_weights = make_aug_param_dictionary(hparams)
-    trainset = WindowedContourSet(entireset.contours, aug_weights, set_type='train', pre_load=True, num_aug_samples=hparams.num_pos_samples, num_neg_samples=hparams.num_neg_samples)
-    # entireset = WindowedContourSet(pre_loaded_data, [], set_type='entire', pre_load=True, num_aug_samples=0, num_neg_samples=0)
-    validset =  WindowedContourSet(entireset.contours, aug_weights, set_type='valid', pre_load=True, num_aug_samples=4, num_neg_samples=0)
 
-    train_loader = DataLoader(trainset, hparams.batch_size, shuffle=True,num_workers=hparams.num_workers,
-        collate_fn=ContourCollate(hparams.num_pos_samples, hparams.num_neg_samples, for_cnn=True), pin_memory=True)
-    entire_loader = DataLoader(entireset, hparams.valid_batch_size, shuffle=False,num_workers=hparams.num_workers,
-        collate_fn=ContourCollate(0, 0, for_cnn=True), pin_memory=True, drop_last=False)
-    valid_loader = DataLoader(validset, hparams.valid_batch_size, shuffle=False,num_workers=hparams.num_workers,
-        collate_fn=ContourCollate(hparams.num_pos_samples, 0, for_cnn=True), pin_memory=True, drop_last=False)
+    if hparams.end_to_end:
+        trainset = AudioSet(entire_loader.dataset.path, aug_weights, set_type='train', pre_load_data=entire_loader.dataset.contours, num_aug_samples=hparams.num_pos_samples, num_neg_samples=hparams.num_neg_samples, sample_rate=hparams.sample_rate)
+        validset =  AudioSet(entire_loader.dataset.path, aug_weights, set_type='valid', pre_load_data=entire_loader.dataset.contours, num_aug_samples=4, num_neg_samples=0, sample_rate=hparams.sample_rate)
 
-    return train_loader, valid_loader, entire_loader #, comparison_loader, collate_fn
-    # return train_loader, #valid_loader, list_collate_fn
+        train_loader = DataLoader(trainset, hparams.batch_size, shuffle=True,num_workers=hparams.num_workers,
+            collate_fn=AudioContourCollate(), pin_memory=True)
+        valid_loader = DataLoader(validset, hparams.valid_batch_size, shuffle=False,num_workers=hparams.num_workers,
+            collate_fn=ContourCollate(hparams.num_pos_samples, 0, for_cnn=True), pin_memory=True, drop_last=False)
+
+    else:
+        trainset = WindowedContourSet(entire_loader.dataset.path, aug_weights, set_type='train', pre_load_data=entire_loader.dataset.contours, num_aug_samples=hparams.num_pos_samples, num_neg_samples=hparams.num_neg_samples)
+        validset =  WindowedContourSet(entire_loader.dataset.path, aug_weights, set_type='valid', pre_load_data=entire_loader.dataset.contours, num_aug_samples=4, num_neg_samples=0)
+        train_loader = DataLoader(trainset, hparams.batch_size, shuffle=True,num_workers=hparams.num_workers,
+            collate_fn=ContourCollate(hparams.num_pos_samples, hparams.num_neg_samples, for_cnn=True), pin_memory=True)
+        valid_loader = DataLoader(validset, hparams.valid_batch_size, shuffle=False,num_workers=hparams.num_workers,
+            collate_fn=ContourCollate(hparams.num_pos_samples, 0, for_cnn=True), pin_memory=True, drop_last=False)
+
+    return train_loader, valid_loader #, comparison_loader, collate_fn
 
 def make_aug_param_dictionary(hparams):
     aug_weight_keys = ['mask_w', 'tempo_w', 'tempo_slice', 'drop_w', 'std_w', 'pitch_noise_w', 'fill_w']
@@ -183,34 +194,19 @@ def convert_hparams_to_string(hparams):
     return out_string
 
 
-def cal_ndcg_of_loader(model, val_loader, total_embs, total_song_ids):
-    valid_score = 0
-    for j, batch in enumerate(val_loader):
-        contours, song_ids = batch
-        anchor = model(contours.cuda())
-        anchor_norm = anchor / anchor.norm(dim=1)[:, None]
-        similarity = torch.mm(anchor_norm, total_embs.transpose(0,1))
-        recommends = torch.topk(similarity, k=hparams.num_recom, dim=-1)[1]
-        recommends = total_song_ids[recommends]
-        ndcg = [cal_ndcg_single(recommends[i,:], song_ids[i]) for i in range(recommends.shape[0])]
-        ndcg = sum(ndcg) / len(ndcg)
-        valid_score += ndcg
-    valid_score = valid_score/(j+1)
-    return valid_score
-
 def validate(model, val_loader, entire_loader, logger, epoch, iteration, hparams, record_key="validation_score"):
     """Handles all the validation scoring and printing"""
     model.eval()
     valid_score = {}
     with torch.no_grad():
         total_embs, total_song_ids = get_contour_embeddings(model, entire_loader)
-        valid_score[record_key] = cal_ndcg_of_loader(model, val_loader, total_embs, total_song_ids)
+        valid_score[record_key] = cal_mrr_of_loader(model, val_loader, total_embs, total_song_ids)
         # for j, batch in enumerate(tqdm(val_loader)):
         if hparams.get_valid_by_aug:
             aug_keys = [x for x in val_loader.dataset.aug_keys]
             for key in aug_keys:
                 val_loader.dataset.aug_keys = [key]
-                valid_score_of_key = cal_ndcg_of_loader(model, val_loader, total_embs, total_song_ids)
+                valid_score_of_key = cal_mrr_of_loader(model, val_loader, total_embs, total_song_ids)
                 valid_score[key] = valid_score_of_key
             val_loader.dataset.aug_keys = aug_keys
     model.train()
@@ -236,13 +232,14 @@ def train(output_directory, log_directory, checkpoint_path, voice_ckpt_path, hpa
     output_directory (string): directory to save checkpoints
     log_directory (string) directory to save tensorboard logs
     checkpoint_path(string): checkpoint path
+    voice_ckpt_path(string): checkpoint path of pre-trained voice estimator model (for end-to-end model)
     hparams (object): hyperparameter object (defined in hparams.py)
     """
 
     torch.manual_seed(hparams.seed)
     torch.cuda.manual_seed(hparams.seed)
     if hparams.end_to_end:
-        model = load_model(hparams, checkpoint_path, voice_ckpt_path)
+        model = load_end_to_end_model(hparams, checkpoint_path, voice_ckpt_path)
     else:
         model = load_model(hparams)
     learning_rate = hparams.learning_rate
@@ -250,23 +247,21 @@ def train(output_directory, log_directory, checkpoint_path, voice_ckpt_path, hpa
                                 weight_decay=hparams.weight_decay)
 
     logger = prepare_directories_and_logger(output_directory, log_directory)
-    
-    if hparams.combined_training:
-        train_loader, val_loader, entire_loader = prepare_dataloaders(hparams)
-        humm_train_loader, humm_val_loader, _ = prepare_humming_db_loaders(hparams)
-    elif hparams.train_on_humming:
-        train_loader, val_loader, entire_loader, = prepare_humming_db_loaders(hparams)
+    entire_loader = prepare_entire_loader(hparams)
+
+    # define dataloader based on hparams options
+    if hparams.train_on_humming:
+        train_loader, val_loader = prepare_humming_db_loaders(hparams)
     else:
-        train_loader, val_loader, entire_loader = prepare_dataloaders(hparams)
+        train_loader, val_loader = prepare_dataloaders(hparams, entire_loader)
+    if hparams.combined_training:
+        humm_train_loader, humm_val_loader = prepare_humming_db_loaders(hparams)
+
 
     # Load checkpoint if one exists
     iteration = 0
     epoch_offset = 0
     if checkpoint_path is not None:
-        # if warm_start:
-        #     model = warm_start_model(
-        #         checkpoint_path, model, hparams.ignore_layers)
-        # else:
         model, optimizer, _learning_rate, iteration = load_checkpoint(
             checkpoint_path, model, optimizer, args.train_on_humming)
         if hparams.use_saved_learning_rate:
@@ -288,8 +283,12 @@ def train(output_directory, log_directory, checkpoint_path, voice_ckpt_path, hpa
         for _, batch in enumerate(train_loader):
             start = time.perf_counter()
             model.zero_grad()
-            batch = batch.cuda()
-            anchor, pos, neg = model(batch, siamese=True)
+            if hparams.end_to_end:
+                batch = (x.cuda() for x in batch)
+                anchor, pos, neg = model(batch, siamese=True, num_pos=train_loader.dataset.num_aug_samples)
+            else:
+                batch = batch.cuda()
+                anchor, pos, neg = model(batch, siamese=True)
             loss = criterion(anchor, pos, neg)
             reduced_loss = loss.item()
             loss.backward()
@@ -319,8 +318,12 @@ def train(output_directory, log_directory, checkpoint_path, voice_ckpt_path, hpa
                     for fine_epoch in range(hparams.epoch_for_humm_train):
                         for batch in humm_train_loader:
                             fine_tune_model.zero_grad()
-                            batch = batch.cuda()
-                            anchor, pos, neg = fine_tune_model(batch, siamese=True)
+                            if hparams.end_to_end:
+                                batch = (x.cuda() for x in batch)
+                                anchor, pos, neg = fine_tune_model(batch, siamese=True, num_pos=train_loader.dataset.num_aug_samples)
+                            else:
+                                batch = batch.cuda()
+                                anchor, pos, neg = fine_tune_model(batch, siamese=True)
                             fine_loss = criterion(anchor, pos, neg)
                             fine_loss.backward()
                             torch.nn.utils.clip_grad_norm_(fine_tune_model.parameters(), hparams.grad_clip_thresh)
@@ -355,7 +358,6 @@ if __name__ == '__main__':
     if args.checkpoint_path:
         hparams = load_hparams(args.checkpoint_path)
         dummy = HParams()
-        hparams.contour_path = dummy.contour_path
         hparams.humming_path = dummy.humming_path
         hparams.in_meta = False
         hparams.get_valid_by_aug = False
@@ -367,9 +369,9 @@ if __name__ == '__main__':
         # hparams = create_hparams(args.hparams)
         hparams = HParams()
     
-
-    
     if args.in_metalearner:
+        from metalearner.common.config import experiment, worker
+        from metalearner.api import scalars
         hparams.in_meta = True
     for attr_key in vars(args):
         if getattr(args, attr_key) is not None and attr_key in vars(hparams):
@@ -383,4 +385,4 @@ if __name__ == '__main__':
 
     print("cuDNN Enabled:", hparams.cudnn_enabled)
     
-    train(output_directory, args.log_directory, args.checkpoint_path, hparams)
+    train(output_directory, args.log_directory, args.checkpoint_path, args.voice_ckpt_path, hparams)
