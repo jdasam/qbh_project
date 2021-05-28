@@ -4,8 +4,8 @@ import numpy as np
 import pandas as pd
 import _pickle as pickle
 import csv
-from melody_utils import pitch_array_to_formatted
-from sampling_utils import downsample_contour_array
+from utils.melody_utils import pitch_array_to_formatted
+from utils.sampling_utils import downsample_contour_array
 
 
 class HummingDB:

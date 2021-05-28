@@ -1,7 +1,7 @@
-from data_path_utils import song_id_to_pitch_txt_path, song_id_to_audio_path
+from utils.data_path_utils import song_id_to_pitch_txt_path, song_id_to_audio_path
 import numpy as np
 from pathlib import Path
-from melody_extraction_utils import MelodyExtractor
+from utils.melody_extraction_utils import MelodyExtractor
 
 MEAN = 61.702336487738215
 STD = 5.5201786930065415

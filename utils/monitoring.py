@@ -5,10 +5,10 @@ import matplotlib.pyplot as plt
 from pydub import AudioSegment
 from pathlib import Path
 
-from data_path_utils import song_id_to_pitch_txt_path        
-from humming_data_utils import load_crepe_pitch as load_humm_melody, get_orig_audio_path_by_id, audio_path_to_pitch_path
-from melody_utils import pitch_array_to_formatted, load_melody, scale_to_midi, MEAN, STD
-from sampling_utils import downsample_contour_array
+from utils.data_path_utils import song_id_to_pitch_txt_path        
+from utils.humming_data_utils import load_crepe_pitch as load_humm_melody, get_orig_audio_path_by_id, audio_path_to_pitch_path
+from utils.melody_utils import pitch_array_to_formatted, load_melody, scale_to_midi, MEAN, STD
+from utils.sampling_utils import downsample_contour_array
 
 def generate_sine_wav(melody, frame_rate=10, sr=44100):
     melody_resampled = np.repeat(melody, sr//frame_rate)

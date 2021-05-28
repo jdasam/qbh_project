@@ -6,11 +6,10 @@ import _pickle as pickle
 from tqdm.auto import tqdm
 import numpy as np
 import random
-import copy
 import melody_augmentation as mel_aug
-from sampling_utils import downsample_contour_array
-from melody_utils import get_overlapped_contours
-from data_path_utils import song_id_to_pitch_txt_path, song_id_to_audio_path
+from utils.sampling_utils import downsample_contour_array
+from utils.melody_utils import get_overlapped_contours
+from utils.data_path_utils import song_id_to_pitch_txt_path, song_id_to_audio_path
 from madmom.audio.signal import Signal
 
 

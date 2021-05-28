@@ -1,6 +1,4 @@
 import torch
-import math
-
 
 def cross_entropy(pred, target):
     # return torch.sum( -target * torch.log(pred + 1e-5)) / torch.sum(target)
