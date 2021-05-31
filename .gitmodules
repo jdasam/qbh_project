@@ -1,4 +1,0 @@
-[submodule "melodyExtraction_SSL"]
-	path = melodyExtraction_SSL
-	url = https://github.com/jdasam/melodyExtraction_SSL.git
-	branch = dir_process

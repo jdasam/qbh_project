@@ -3,19 +3,18 @@ import numpy as np
 from pathlib import Path
 import librosa
 from madmom.audio.signal import *
-from model import Melody_ResNet
-
+from model.model import Melody_ResNet
 
 class MelodyExtractor:
-    def __init__(self, device='cuda'):
+    def __init__(self, weight_dir=Path('weights/'), device='cuda'):
         self.model = Melody_ResNet()
-        self.model.load_state_dict(torch.load('melody_extractor_weights.pt'))
+        self.model.load_state_dict(torch.load(weight_dir / 'melody_extractor_weights.pt'))
         self.model.eval()
         self.model = self.model.to(device)
         self.device = device
 
-        self.spec_mean = np.load('x_data_mean_total_31.npy')
-        self.spec_std = np.load('x_data_std_total_31.npy')
+        self.spec_mean = np.load(weight_dir / 'x_data_mean_total_31.npy')
+        self.spec_std = np.load(weight_dir / 'x_data_std_total_31.npy')
 
         note_res = 8
         pitch_range = np.arange(40, 95 + 1.0/note_res, 1.0/note_res)
@@ -64,7 +63,7 @@ class MelodyExtractor:
         return est_pitch
 
 
-    def get_norm_spec_from_audio(self, audio_sample, win_size):
+    def get_norm_spec_from_audio(self, audio_sample, win_size=31):
         x_test = []
         S = librosa.core.stft(audio_sample, n_fft=1024, hop_length=80*1, win_length=1024)
         x_spec = np.abs(S)

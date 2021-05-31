@@ -2,7 +2,6 @@ from utils.data_path_utils import song_id_to_pitch_txt_path, song_id_to_audio_pa
 import numpy as np
 from pathlib import Path
 from utils.melody_extraction_utils import MelodyExtractor
-
 MEAN = 61.702336487738215
 STD = 5.5201786930065415
 
@@ -15,18 +14,20 @@ class MelodyLoader:
 
         self.melody_extractor = MelodyExtractor(device=device)
 
-    def check_txt_exists(self, song_ids, make_txt=False):
+    def check_txt_exists(self, song_ids, make_txt=False, verbose=False):
         everything_ok = True
         for idx in song_ids:
             path = song_id_to_pitch_txt_path(self.data_dir, idx)
             if not path.exists():
-                print(f"Melody txt for Song ID {idx} does not exist")
+                if verbose:
+                    print(f"Melody txt for Song ID {idx} does not exist")
                 if make_txt:
                     audio_path = song_id_to_audio_path(self.data_dir, idx)
                     if audio_path.exists():
                         self.melody_extractor(audio_path)
                     else:
-                        print(f"Audio file for Song ID {idx} does not exist")
+                        if verbose:
+                            print(f"Audio file for Song ID {idx} does not exist")
                         everything_ok = False
                 else:
                         everything_ok = False

@@ -7,23 +7,28 @@ from collections import defaultdict
 import numpy as np
 import argparse
 import copy
+import samplerate
 
 from train import load_checkpoint
-from model import CnnEncoder, CombinedModel
-from data_utils import WindowedContourSet, ContourCollate, HummingPairSet, get_song_ids_of_selected_genre, AudioTestSet, AudioCollate, load_audio_sample
-from data_path_utils import song_id_to_audio_path
-from validation import get_contour_embeddings
-from melody_utils import MelodyLoader
+from model.model import CnnEncoder, CombinedModel
+from utils.data_utils import WindowedContourSet, ContourCollate, HummingPairSet, get_song_ids_of_selected_genre, AudioTestSet, AudioCollate, load_audio_sample
+from utils.data_path_utils import song_id_to_audio_path
+from model.validation import get_contour_embeddings
+from utils.melody_utils import MelodyLoader, melody_to_formatted_array
 import matplotlib.pyplot as plt
 import matplotlib.font_manager as fm
 import pandas as pd
-import humming_data_utils as utils
-import monitoring
+import utils.humming_data_utils as humm_utils
+import utils.monitoring as monitoring
+from tqdm.auto import tqdm
+from model import hparams
 
+import sys
+sys.modules['hparams'] = hparams
 
 
 class QbhSystem:
-    def __init__(self, ckpt_dir, emb_dir, device, audio_dir=None, meta_path='flo_metadata_220k.dat', min_vocal_ratio=0.3, make_emb=False, song_ids=[]):
+    def __init__(self, ckpt_dir, emb_dir, device, audio_dir=None, meta_path='data/flo_metadata_220k.dat', min_vocal_ratio=0.3, make_emb=False, song_ids=[]):
         self.model, self.hparams = load_model(ckpt_dir, device)
         if hasattr(self.hparams, 'end_to_end') and self.hparams.end_to_end:
             self.end_to_end = True
@@ -58,11 +63,10 @@ class QbhSystem:
     def get_and_save_embedding(self, db_song_ids, save_dir):
         save_dir = Path(save_dir)
         with torch.no_grad():
-            for song_id in db_song_ids:
+            for song_id in tqdm(db_song_ids):
                 if self.end_to_end:
                     audio_path = song_id_to_audio_path(self.audio_dir, song_id)
-                    audio_samples = load_audio_sample(audio_path, self.sample_rate
-                    )
+                    audio_samples = load_audio_sample(audio_path, self.sample_rate)
                     audio_samples[frame_pos[0]//100*self.sample_rate:frame_pos[1]//100*self.sample_rate]
                 else:
                     melodies = self.melody_loader(song_id)
@@ -77,16 +81,30 @@ class QbhSystem:
                 output = {'embedding': emb.cpu(), 'song_id': song_id, 'frame_pos':torch.LongTensor([x['frame_pos'] for x in melodies])}
                 torch.save(output, save_dir/str_id[:3]/str_id[3:6]/(str_id+'.pt'))
 
-    def get_rec_by_melody(self, input_melody, song_id=None, k=5):
+    def get_rec_by_embedding(self, embedding, k=5):
+        similarity = cal_similarity(self.embedding, embedding)
+        recommends, selected_max_slice_pos, top_k_similarity, _ = get_most_similar_result(similarity, self.unique_ids, self.index_by_id, self.slice_by_song, k=k)
+        rec_result = [{'artist': self.db_meta[x]['artist_name_basket'], 'title': self.db_meta[x]['track_name'],'song_id': x, 'slice_pos':y.tolist(), 'similarity':z} 
+                            for x,y,z in zip(recommends.squeeze().tolist(), selected_max_slice_pos, top_k_similarity[:k].squeeze().tolist())]
+        return rec_result
+
+    def get_rec_by_melody(self, input_melody, k=5):
         if len(input_melody.shape) == 2:
             input_melody = input_melody.unsqueeze(0)
         anchor = self.model(input_melody.to(self.device))
+        return self.get_rec_by_embedding(anchor, k=k)
 
-        similarity = cal_similarity(self.embedding, anchor)
-        recommends, selected_max_slice_pos, top_k_similarity, _ = get_most_similar_result(similarity, self.unique_ids, self.index_by_id, self.slice_by_song, k=k)
-        
-        rec_result = [{'artist': self.db_meta[x]['artist_name_basket'], 'title': self.db_meta[x]['track_name'],'song_id': x, 'slice_pos':y.tolist(), 'similarity':z} for x,y,z in zip(recommends.squeeze().tolist(), selected_max_slice_pos, top_k_similarity[:k].squeeze().tolist())]
-        return rec_result
+    def get_rec_by_audio(self, audio_sample, sample_rate=44100, k=5):
+        if self.end_to_end:
+            raise NotImplementedError
+        else:
+            if sample_rate != 8000:
+                audio_sample = samplerate.resample(audio_sample, 8000 / sample_rate, 'sinc_best')
+            melody = self.melody_loader.melody_extractor.get_melody_from_audio(audio_sample)
+            melody_array = melody_to_formatted_array(melody)
+            melody_tensor = torch.Tensor(melody_array).unsqueeze(0)
+            anchor = self.model(melody_tensor.to(self.device))
+        return self.get_rec_by_embedding(anchor, k=k)
 
 class WrappedModel(torch.nn.Module):
     def __init__(self, module):
@@ -153,11 +171,11 @@ def prepare_humming_testset(humm_contour_pairs_dat_path='/home/svcapp/userdata/f
 
     return humm_test_loader
 
-def prepare_dataset_for_test(data_dir='/home/svcapp/userdata/flo_data_backup/', selected_genres=[4, 12, 13, 17, 10, 7,15, 11, 9], dataset='flo_metadata.dat', num_workers=4, min_vocal_ratio=0.5, use_audio=False, sample_rate=8000):
+def prepare_dataset_for_test(data_dir='/home/svcapp/userdata/flo_data_backup/', selected_genres=[4, 12, 13, 17, 10, 7,15, 11, 9], dataset='data/flo_metadata.dat', num_workers=4, min_vocal_ratio=0.5, use_audio=False, sample_rate=8000):
 
     with open(dataset, 'rb') as f:
         metadata = pickle.load(f)
-    with open('humm_db_ids.dat', 'rb') as f:
+    with open('data/humm_db_ids.dat', 'rb') as f:
         humm_ids = pickle.load(f)
 
     song_ids = get_song_ids_of_selected_genre(metadata, selected_genre=selected_genres)
@@ -169,12 +187,12 @@ def prepare_dataset_for_test(data_dir='/home/svcapp/userdata/flo_data_backup/', 
         entire_loader = DataLoader(entireset, 4, shuffle=False,num_workers=num_workers,
             collate_fn=AudioCollate(), pin_memory=False, drop_last=False)
     else:
-        entireset = WindowedContourSet(data_dir, aug_weights=[], song_ids=song_ids, set_type='entire', pre_load=False, num_aug_samples=0, num_neg_samples=0, min_vocal_ratio=min_vocal_ratio)
+        entireset = WindowedContourSet(data_dir, aug_weights=[], song_ids=song_ids, set_type='entire', num_aug_samples=0, num_neg_samples=0, min_vocal_ratio=min_vocal_ratio)
         entire_loader = DataLoader(entireset, 512, shuffle=False, num_workers=num_workers,
             collate_fn=ContourCollate(0, 0, for_cnn=True), pin_memory=False, drop_last=False)
 
     humm_test_loader = prepare_humming_testset('/home/svcapp/userdata/flo_melody/humming_db_contour_pairs.dat', num_workers)
-    selected_100, selected_900 = utils.load_meta_from_excel("/home/svcapp/userdata/humming_db/Spec.xlsx")
+    selected_100, selected_900 = humm_utils.load_meta_from_excel("/home/svcapp/userdata/humming_db/Spec.xlsx")
 
     meta_in_song_key = {x['track_id']: x for x in metadata}
     for song in selected_100.to_dict('records'):
@@ -300,7 +318,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('-wav', '--save_wav', action='store_true', help="Option for save wav for each evaluation case")
     parser.add_argument('--min_vocal_ratio', type=float, default=0.3)
-    parser.add_argument('-data', '--dataset_meta', type=str, default='flo_metadata_220k.dat')
+    parser.add_argument('-data', '--dataset_meta', type=str, default='data/flo_metadata_220k.dat')
     parser.add_argument('--save_dir', type=Path, default='eval/')
     parser.add_argument('--model_dir', type=str, default='/home/svcapp/t2meta/qbh_model')
     args = parser.parse_args()
@@ -312,7 +330,7 @@ if __name__ == "__main__":
     font_path = 'malgun.ttf'
     font_prop = fm.FontProperties(fname=font_path, size=20)
 
-    flo_test_list = pd.read_csv('flo_test_list.csv')
+    flo_test_list = pd.read_csv('data/flo_test_list.csv')
     flo_test_meta = {x['track id']: x for x in flo_test_list.to_dict('records')}
     humm_meta = [x['meta'] for x in humm_test_loader.dataset.contours]
 

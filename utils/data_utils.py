@@ -6,7 +6,7 @@ import _pickle as pickle
 from tqdm.auto import tqdm
 import numpy as np
 import random
-import melody_augmentation as mel_aug
+import utils.melody_augmentation as mel_aug
 from utils.sampling_utils import downsample_contour_array
 from utils.melody_utils import get_overlapped_contours
 from utils.data_path_utils import song_id_to_pitch_txt_path, song_id_to_audio_path
@@ -479,7 +479,7 @@ if __name__ == '__main__':
     selected_genres = [4, 12, 13, 17, 10, 7,15, 11, 9]
 
     song_ids = get_song_ids_of_selected_genre(metadata, selected_genre=selected_genres)
-    with open('humm_db_ids.dat', 'rb') as f:
+    with open('data/humm_db_ids.dat', 'rb') as f:
         humm_ids = pickle.load(f)
     song_ids += humm_ids
     # qbh_path = Path('/home/svcapp/userdata/flo_data_backup/qbh')

@@ -5,8 +5,8 @@ from nnAudio import Spectrogram
 
 
 from torch.nn.modules.pooling import MaxPool1d
-from module import ConvNorm, Res_1d
-from model_utils import cal_conv_parameters
+from model.module import ConvNorm, Res_1d
+from model.model_utils import cal_conv_parameters
 
 class ContourEncoder(nn.Module):
     def __init__(self, hparams):

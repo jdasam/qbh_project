@@ -49,6 +49,36 @@ def get_audio_and_sine_from_contour_data(contour_data, db_path):
 
     return rec_slice, contour_wav
 
+def get_audio_and_sine_from_humming_pair(humming_pair, db_path):
+    '''
+    humming_pair: {'humming': numpy array, 'orig': numpy_array, 'meta': dict }
+    db_path = Path(database path)
+    '''
+    # get humm audio
+    humm_audio_path = humming_pair['meta']['path']
+    humm_audio = AudioSegment.from_file(humm_audio_path, 'm4a').set_frame_rate(44100).set_channels(1)._data
+    humm_audio = np.frombuffer(humm_audio, dtype=np.int16) / 32768
+
+    # get original audio
+    idx = humming_pair['meta']['track_id']
+    audio_path = get_orig_audio_path_by_id(idx, db_path)
+    orig_audio = AudioSegment.from_file(audio_path, 'm4a').set_frame_rate(44100).set_channels(1)._data
+    orig_audio = np.frombuffer(orig_audio, dtype=np.int16) / 32768
+
+    # slice original audio
+    start, end = (int(x) for x in humming_pair['meta']['time_stamp'].split('-'))
+    corresp_orig_slice = orig_audio[start*44100: end*44100]
+
+    # generate sine from humm melody 
+    humm_contour_wav = generate_sine_wav(normalized_vec_to_orig(humming_pair['humm']), frame_rate=100, sr=44100)
+
+    # generate sine from orig melody 
+    orig_contour_wav = generate_sine_wav(normalized_vec_to_orig(humming_pair['orig']), frame_rate=100, sr=44100)
+
+    return humm_audio, corresp_orig_slice, humm_contour_wav, orig_contour_wav
+
+
+
 def save_test_result_in_wav(total_recommends, total_test_ids, total_rank, total_rec_slices, meta, humm_meta, out_dir, db_path=Path('/home/svcapp/t2meta/flo_new_music/music_100k/')):
     for i in range(len(humm_meta)):
         track_id = humm_meta[i]["track_id"]

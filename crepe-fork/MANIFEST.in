@@ -1,4 +1,0 @@
-recursive-include crepe *.py
-include README.md
-include LICENSE
-include requirements.txt
