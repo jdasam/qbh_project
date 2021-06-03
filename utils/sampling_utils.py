@@ -40,7 +40,10 @@ def downsample_contour(contour, is_vocal=None, down_f=10, down_type='sample'):
 
 
 def downsample_contour_array(contour, down_f=10, down_type='sample'):
-    num_pad = down_f - len(contour) % down_f
+    if len(contour) % down_f == 0:
+        num_pad = 0
+    else:
+        num_pad = down_f - len(contour) % down_f
     contour_array = np.zeros((contour.shape[0]+num_pad, 2))
     contour_array[:contour.shape[0],:] = contour
     contour_array[contour_array[:,1]==0, 0] = np.nan

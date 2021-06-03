@@ -28,13 +28,13 @@ if __name__ == '__main__':
 
     with open(args.meta_dat_path, 'rb') as f:
         db_metadata = pickle.load(f)
-    selected_genres = [4, 12, 13, 17, 10, 7,15, 11, 9]
+    # selected_genres = [4, 12, 13, 17, 10, 7,15, 11, 9]
+    selected_genres= [4]
     song_ids = get_song_ids_of_selected_genre(db_metadata, selected_genres)
 
     with open(args.humm_db_ids_path, 'rb') as f:
         humm_ids = pickle.load(f)
         # list of humming ids
     song_ids += humm_ids
-
 
     qbh_system = QbhSystem(args.checkpoint_directory, args.output_directory, 'cuda', audio_dir=args.dataset_dir, make_emb=True, song_ids=song_ids)

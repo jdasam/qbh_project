@@ -15,6 +15,12 @@ from madmom.audio.signal import Signal
 
 class WindowedContourSet:
     def __init__(self, path, aug_weights, song_ids=[], num_aug_samples=4, num_neg_samples=4, pre_load_data=None, set_type='entire', min_vocal_ratio=0.5):
+        '''
+        path: (str) home directory of melody(.txt) files
+        aug_weights: (dict) dictionary of melody augmentation weight. key: aug type, value: weight
+        song_ids: (list) list of song ids that are included in the dataset
+        pre_load_data: contours
+        '''
         self.min_vocal_ratio = min_vocal_ratio
         self.path = Path(path)
         if pre_load_data is None:

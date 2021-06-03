@@ -94,7 +94,7 @@ def make_humming_sample_dictionary(path, df_a, df_b):
         sample['track_id'] = row['track_id']
         sample['singer_id'] = sample['singer_id'][:-1]
         
-    else:
+    else: # meta[0] == "900"
         sample['song_group'], sample['song_idx'], sample['humming_type'], sample['time_stamp'] = meta
         
         row = df_b.loc[df_b['file_name'] == path.name].iloc[0]
@@ -156,5 +156,5 @@ if __name__ == "__main__":
     humming_db = HummingDB('/home/svcapp/userdata/humming_db', '/home/svcapp/userdata/flo_data_backup/', selected_100, selected_900)
     # contour_pairs = [humming_db[i] for i in range(len(humming_db))]
     contour_pairs = [x for x in humming_db]
-    with open('humming_db_contour_pairs.dat', "wb") as f:
+    with open('data/humming_db_contour_pairs.dat', "wb") as f:
         pickle.dump(contour_pairs, f)

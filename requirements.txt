@@ -1,0 +1,14 @@
+tqdm==4.33.0
+simplejson==3.17.2
+samplerate==0.1.0
+torch==1.6.0
+SoundFile==0.10.3.post1
+matplotlib==3.3.2
+madmom==0.16.1
+MetaLearner_SDK==0.7.0
+librosa==0.8.0
+pydub==0.24.1
+numpy==1.18.5
+pandas==1.1.2
+scipy==1.4.1
+nnAudio==0.2.2

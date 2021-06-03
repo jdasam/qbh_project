@@ -35,6 +35,7 @@ def prepare_humming_db_loaders(hparams):
     aug_weights = make_aug_param_dictionary(hparams)
 
 
+
     if hparams.end_to_end:
         train_set = HummingAudioSet(hparams.data_dir, contour_pairs, aug_weights, "train", aug_keys, num_aug_samples=hparams.num_pos_samples, num_neg_samples=hparams.num_neg_samples)
         valid_set = HummingAudioSet(hparams.data_dir, contour_pairs, [], "valid", aug_keys, num_aug_samples=0, num_neg_samples=0)

@@ -15,6 +15,7 @@ from utils.data_utils import WindowedContourSet, ContourCollate, HummingPairSet,
 from utils.data_path_utils import song_id_to_audio_path
 from model.validation import get_contour_embeddings
 from utils.melody_utils import MelodyLoader, melody_to_formatted_array
+from utils.sampling_utils import downsample_contour_array
 import matplotlib.pyplot as plt
 import matplotlib.font_manager as fm
 import pandas as pd
@@ -28,8 +29,18 @@ sys.modules['hparams'] = hparams
 
 
 class QbhSystem:
-    def __init__(self, ckpt_dir, emb_dir, device, audio_dir=None, meta_path='data/flo_metadata_220k.dat', min_vocal_ratio=0.3, make_emb=False, song_ids=[]):
+    def __init__(self, ckpt_dir, emb_dir, device='cuda', audio_dir=None, meta_path='data/flo_metadata_220k.dat', min_vocal_ratio=0.3, make_emb=False, song_ids=[]):
+        '''
+        ckpt_dir: (str) directory path of checkpoint
+        emb_dir: (str) directory path to (save or load) melody embeddings
+        device: (str) cpu or cuda
+        audio_dir: (str) directory path of audio files (optional)
+        meta_path: (str) path to meta dat
+
+        '''
+
         self.model, self.hparams = load_model(ckpt_dir, device)
+        self.model.eval()
         if hasattr(self.hparams, 'end_to_end') and self.hparams.end_to_end:
             self.end_to_end = True
             self.sample_rate = 8000
@@ -55,8 +66,9 @@ class QbhSystem:
         pt_lists = Path(emb_dir).rglob('*.pt')
         embs = [torch.load(path) for path in pt_lists]
         self.embedding = torch.cat([x['embedding'] for x in embs]).to(self.device)
+        self.embedding /= self.embedding.norm(dim=1)[:,None]
         self.song_ids = torch.LongTensor([x['song_id'] for x in embs for _ in range(x['embedding'].shape[0])])
-        self.slice_pos = torch.cat([x['frame_pos'] for x in embs ])
+        self.slice_pos = torch.cat([x['frame_pos'] for x in embs])
         self.unique_ids, self.index_by_id = get_index_by_id(self.song_ids)
         self.slice_by_song = self.slice_pos[self.index_by_id]
 
@@ -65,6 +77,7 @@ class QbhSystem:
         with torch.no_grad():
             for song_id in tqdm(db_song_ids):
                 if self.end_to_end:
+                    raise NotImplementedError
                     audio_path = song_id_to_audio_path(self.audio_dir, song_id)
                     audio_samples = load_audio_sample(audio_path, self.sample_rate)
                     audio_samples[frame_pos[0]//100*self.sample_rate:frame_pos[1]//100*self.sample_rate]
@@ -72,7 +85,7 @@ class QbhSystem:
                     melodies = self.melody_loader(song_id)
                     if len(melodies) == 0:
                         continue
-                    batch = torch.Tensor([x['contour'] for x in melodies]).to(self.device)
+                    batch = torch.Tensor([downsample_contour_array(x['contour']) for x in melodies]).to(self.device)
                 emb = self.model(batch)
                 emb /= emb.norm(dim=1)[:,None]
                 str_id = str(song_id)
@@ -102,6 +115,7 @@ class QbhSystem:
                 audio_sample = samplerate.resample(audio_sample, 8000 / sample_rate, 'sinc_best')
             melody = self.melody_loader.melody_extractor.get_melody_from_audio(audio_sample)
             melody_array = melody_to_formatted_array(melody)
+            melody_array = downsample_contour_array(melody_array)
             melody_tensor = torch.Tensor(melody_array).unsqueeze(0)
             anchor = self.model(melody_tensor.to(self.device))
         return self.get_rec_by_embedding(anchor, k=k)
@@ -113,8 +127,8 @@ class WrappedModel(torch.nn.Module):
 
 
 def cal_similarity(total, emb):
-    anchor_norm = emb / emb.norm(dim=1)[:, None]
-    similarity = torch.mm(anchor_norm, total.transpose(0,1))
+    norm = emb / emb.norm(dim=1)[:, None]
+    similarity = torch.mm(norm, total.transpose(0,1))
     return similarity
 
 def get_most_similar_result(similarity, unique_ids, index_by_id, slice_pos_info, k=30):
@@ -324,8 +338,8 @@ if __name__ == "__main__":
     args = parser.parse_args()
     if not args.save_dir.exists():
         args.save_dir.mkdir()
-    # selected_genre = [4]
-    entire_loader, humm_test_loader, meta = prepare_dataset_for_test(data_dir='/home/svcapp/t2meta/flo_new_music/music_100k/',  dataset=args.dataset_meta, min_vocal_ratio=args.min_vocal_ratio)
+    selected_genre = [4]
+    entire_loader, humm_test_loader, meta = prepare_dataset_for_test(data_dir='/home/svcapp/t2meta/flo_new_music/music_100k/',  dataset=args.dataset_meta, min_vocal_ratio=args.min_vocal_ratio, selected_genres=selected_genre)
     total_slice_pos = np.asarray([x['frame_pos'] for x in entire_loader.dataset.contours])
     font_path = 'malgun.ttf'
     font_prop = fm.FontProperties(fname=font_path, size=20)
@@ -337,7 +351,7 @@ if __name__ == "__main__":
 
     # worker_ids = [401032, 480785, 482492, 482457, 483559, 483461]
     # worker_ids = [483559, 483461]
-    worker_ids = [485391, 485399]
+    worker_ids = [485391] #, 485399]
     # worker_ids = [482492]
     model_dir = Path(args.model_dir)
     for id in worker_ids:
