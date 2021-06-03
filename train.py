@@ -1,6 +1,5 @@
 import os
 import time
-import argparse
 import _pickle as pickle
 import copy
 import random
@@ -12,16 +11,18 @@ from datetime import datetime
 
 import torch
 from torch.utils.data import DataLoader
-
-from model import CnnEncoder, CombinedModel
-from data_utils import ContourCollate, HummingPairSet, WindowedContourSet, get_song_ids_of_selected_genre, AudioSet, AudioCollate, AudioContourCollate, HummingAudioSet
 from torch.optim.lr_scheduler import StepLR
-from logger import Logger
-from hparams import HParams
-from loss_function import SiameseLoss
-from validation import get_contour_embeddings, cal_mrr_of_loader
-from parser_util import create_parser
 
+from model.logger import Logger
+from model.hparams import HParams
+from model.loss_function import SiameseLoss
+from model.model import CnnEncoder, CombinedModel
+from utils.data_utils import ContourCollate, HummingPairSet, WindowedContourSet, get_song_ids_of_selected_genre, AudioSet, AudioCollate, AudioContourCollate, HummingAudioSet
+from model.validation import get_contour_embeddings, cal_mrr_of_loader
+from utils.parser_util import create_parser
+from model import hparams
+import sys
+sys.modules['hparams'] = hparams
 
 def prepare_humming_db_loaders(hparams):
     with open(hparams.humming_path, "rb") as f:
@@ -32,6 +33,7 @@ def prepare_humming_db_loaders(hparams):
     if hparams.add_smoothing:
         aug_keys.append('smoothing')
     aug_weights = make_aug_param_dictionary(hparams)
+
 
 
     if hparams.end_to_end:
@@ -60,7 +62,7 @@ def prepare_entire_loader(hparams, add_humm=True, num_song_limit=None):
     if num_song_limit and len(song_ids) > num_song_limit:
         song_ids = random.sample(song_ids, num_song_limit)
     if add_humm:
-        with open('humm_db_ids.dat', 'rb') as f:
+        with open('data/humm_db_ids.dat', 'rb') as f:
             humm_ids = pickle.load(f)
         song_ids += humm_ids
 
