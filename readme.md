@@ -22,7 +22,22 @@ The melody embedding model takes a melody contour input in a size of (Batch X Le
 ---
 ## Model Training
 
+![Triplet loss](fig/triplet_loss.png)
 The model was trained by triplet loss of max hinge cosine similarity. Anchor is an original melody and positive samples are augmented version of anchor melody or humming melody. Negative samples are sampled from melody of other songs.
+
+The training step consists of two steps. 
+- First step is self-supervised learning. From large music audio dataset, we extracted melody using the singing voice estimator.
+    - Anchor: a selected melody, which is extracted from an audio file using the singing voice estimator.
+    - Positive samples: augmented version of the anchor. The augmentation is a rule-based distortion that simulates possible changes in a human humming.
+    - Negative samples: melodies sampled from different songs.
+- Second step is supervised learning using additional humming-audio pair dataset. We collected humming data with a label that notates song id of original song and time stamp of the corresponding hummed section. 
+    - Anchor: A melody extracted from audio file
+    - Positive samples: 
+        - a) A melody from monophonic humming example of the given anchor melody 
+        - b) Augmented melodies of a)
+    - Negative samples: melodies sampled from different songs
+
+![Training Step](fig/ssl_sl.png)
 
 ---
 ## Tutorial
