@@ -19,7 +19,7 @@ from torch.optim.lr_scheduler import StepLR
 from model.logger import Logger
 from model.hparams import HParams
 from model.loss_function import cross_entropy
-from melody_estimation import model_prediction_to_pitch, elongate_result
+from utils.melody_extraction_utils import model_prediction_to_pitch, elongate_result
         
 def prepare_dataloaders(hparams):
     # Get data, data loaders and collate function ready

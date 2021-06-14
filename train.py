@@ -108,14 +108,14 @@ def prepare_directories_and_logger(output_directory, log_directory,):
     logger = Logger(output_directory / log_directory)
     return logger
 
-def load_model(hparams):
+def load_model(hparams, device):
     # model = ContourEncoder(hparams).cuda()
-    model = CnnEncoder(hparams).cuda()
+    model = CnnEncoder(hparams).to(device)
     if hparams.data_parallel:
         model = torch.nn.DataParallel(model)
     return model
 
-def load_end_to_end_model(hparams, checkpoint_path, voice_ckpt_path):
+def load_end_to_end_model(hparams, checkpoint_path, voice_ckpt_path, device='cuda'):
     hparams_b = copy.copy(hparams)
     hparams_b.input_size = 512
     model = CombinedModel(hparams, hparams_b)
@@ -123,13 +123,13 @@ def load_end_to_end_model(hparams, checkpoint_path, voice_ckpt_path):
     model.contour_encoder.load_state_dict(torch.load(checkpoint_path)['state_dict'])
     if hparams.data_parallel:
         model = torch.nn.DataParallel(model)
-    model = model.cuda()
+    model = model.to(device)
     return model
 
-def load_checkpoint(checkpoint_path, model, optimizer, train_on_humming=False):
+def load_checkpoint(checkpoint_path, model, optimizer, train_on_humming=False, device='cuda'):
     assert os.path.isfile(checkpoint_path)
     print("Loading checkpoint '{}'".format(checkpoint_path))
-    checkpoint_dict = torch.load(checkpoint_path, map_location='cuda')
+    checkpoint_dict = torch.load(checkpoint_path, map_location=device)
     model.load_state_dict(checkpoint_dict['state_dict'])
     iteration = checkpoint_dict['iteration']
     print("Loaded checkpoint '{}' from iteration {}" .format(
@@ -226,7 +226,7 @@ def validate(model, val_loader, entire_loader, logger, epoch, iteration, hparams
 
     return valid_score[record_key]
 
-def train(output_directory, log_directory, checkpoint_path, voice_ckpt_path, hparams):
+def train(output_directory, log_directory, checkpoint_path, voice_ckpt_path, hparams, device):
     """Training and validation logging results to tensorboard
 
     Params
@@ -241,9 +241,9 @@ def train(output_directory, log_directory, checkpoint_path, voice_ckpt_path, hpa
     torch.manual_seed(hparams.seed)
     torch.cuda.manual_seed(hparams.seed)
     if hparams.end_to_end:
-        model = load_end_to_end_model(hparams, checkpoint_path, voice_ckpt_path)
+        model = load_end_to_end_model(hparams, checkpoint_path, voice_ckpt_path, device)
     else:
-        model = load_model(hparams)
+        model = load_model(hparams, device)
     learning_rate = hparams.learning_rate
     optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate,
                                 weight_decay=hparams.weight_decay)
@@ -265,7 +265,7 @@ def train(output_directory, log_directory, checkpoint_path, voice_ckpt_path, hpa
     epoch_offset = 0
     if checkpoint_path is not None:
         model, optimizer, _learning_rate, iteration = load_checkpoint(
-            checkpoint_path, model, optimizer, args.train_on_humming)
+            checkpoint_path, model, optimizer, args.train_on_humming, device)
         if hparams.use_saved_learning_rate:
             learning_rate = _learning_rate
         iteration += 1  # next iteration is iteration + 1
@@ -286,10 +286,10 @@ def train(output_directory, log_directory, checkpoint_path, voice_ckpt_path, hpa
             start = time.perf_counter()
             model.zero_grad()
             if hparams.end_to_end:
-                batch = (x.cuda() for x in batch)
+                batch = (x.to(device) for x in batch)
                 anchor, pos, neg = model(batch, siamese=True, num_pos=train_loader.dataset.num_aug_samples)
             else:
-                batch = batch.cuda()
+                batch = batch.to(device)
                 anchor, pos, neg = model(batch, siamese=True)
             loss = criterion(anchor, pos, neg)
             reduced_loss = loss.item()
@@ -312,7 +312,7 @@ def train(output_directory, log_directory, checkpoint_path, voice_ckpt_path, hpa
                     model = model.to('cpu')
                     fine_learning_rate = hparams.learning_rate
                     fine_tune_model = copy.deepcopy(model)
-                    fine_tune_model = fine_tune_model.to('cuda')
+                    fine_tune_model = fine_tune_model.to(device)
                     fine_optimizer = torch.optim.Adam(fine_tune_model.parameters(), lr=fine_learning_rate,
                                 weight_decay=hparams.weight_decay)
                     fine_tune_model.train()
@@ -321,18 +321,18 @@ def train(output_directory, log_directory, checkpoint_path, voice_ckpt_path, hpa
                         for batch in humm_train_loader:
                             fine_tune_model.zero_grad()
                             if hparams.end_to_end:
-                                batch = (x.cuda() for x in batch)
+                                batch = (x.to(device) for x in batch)
                                 anchor, pos, neg = fine_tune_model(batch, siamese=True, num_pos=train_loader.dataset.num_aug_samples)
                             else:
-                                batch = batch.cuda()
+                                batch = batch.to(device)
                                 anchor, pos, neg = fine_tune_model(batch, siamese=True)
                             fine_loss = criterion(anchor, pos, neg)
                             fine_loss.backward()
                             torch.nn.utils.clip_grad_norm_(fine_tune_model.parameters(), hparams.grad_clip_thresh)
                             fine_optimizer.step()
                     valid_score = validate(fine_tune_model, humm_val_loader, entire_loader, logger, epoch, iteration, hparams, record_key='humm_validation_score')
-                    model = model.to('cuda')
-                    model, optimizer, learning_rate, iteration = load_checkpoint(temp_check_path, model, optimizer)
+                    model = model.to(device)
+                    model, optimizer, learning_rate, iteration = load_checkpoint(temp_check_path, model, optimizer, device)
                     freeze_model(model)
                     fine_tune_model = fine_tune_model.to('cpu')
                     orig_valid_score = validate(model, val_loader, entire_loader, logger, epoch, iteration, hparams, record_key='orig_validation_score')
@@ -387,4 +387,4 @@ if __name__ == '__main__':
 
     print("cuDNN Enabled:", hparams.cudnn_enabled)
     
-    train(output_directory, args.log_directory, args.checkpoint_path, args.voice_ckpt_path, hparams)
+    train(output_directory, args.log_directory, args.checkpoint_path, args.voice_ckpt_path, hparams, args.device)

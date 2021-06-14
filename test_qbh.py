@@ -219,7 +219,7 @@ def evaluate_single_sample(model, contour, song_id, total_embs, total_song_ids, 
     # This function is work in progress
     if len(contour.shape) == 2:
         contour = contour.unsqueeze(0)
-    anchor = model(contour.cuda())
+    anchor = model(contour.to(model.device))
     anchor_norm = anchor / anchor.norm(dim=1)[:, None]
     similarity = torch.mm(anchor_norm, total_embs.transpose(0,1))
     similarity_by_ids = similarity[:, index_by_id]
@@ -253,7 +253,7 @@ def evaluate(model, humm_test_loader, total_embs, total_song_ids, unique_ids, in
     #     total_embs, total_song_ids = get_contour_embeddings(model, entire_loader)
         for j, batch in enumerate(humm_test_loader):
             contours, song_ids = batch
-            anchor = model(contours.cuda())
+            anchor = model(contours.to(model.device))
 
             similarity = cal_similarity(total_embs, anchor)
             recommends, selected_max_slice_pos, _, max_similarity_by_song = get_most_similar_result(similarity, unique_ids, index_by_id, total_slice_pos_by_song, k=30)
