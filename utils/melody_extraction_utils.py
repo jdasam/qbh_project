@@ -1,3 +1,9 @@
+'''
+This module is a modified version of https://github.com/keums/melodyExtraction_SSL, 
+an implementation of "Semi-supervised learning using teacher-student models for vocal melody extraction", ISMIR(2020) by Sangeun Kum.
+Please refer https://arxiv.org/abs/2008.06358 for the detail
+'''
+
 import torch
 import numpy as np
 from pathlib import Path
