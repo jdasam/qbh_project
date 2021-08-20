@@ -4,6 +4,7 @@ import numpy as np
 import pandas as pd
 import _pickle as pickle
 import csv
+import argparse
 from utils.melody_utils import pitch_array_to_formatted
 from utils.sampling_utils import downsample_contour_array
 
@@ -152,6 +153,20 @@ def load_crepe_pitch(pitch_path, threshold=0.7, to_midi_pitch=True, cut_low_freq
 
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument('-o', '--output_directory', type=str,
+                        default="emb_test",
+                        help='directory to save embedding')
+    parser.add_argument('-c', '--checkpoint_directory', type=Path, 
+                        default=Path("weights/contour_model"),
+                        help='directory to load checkpoint')
+    parser.add_argument('--dataset_dir', type=Path, 
+                        default= Path('/home/svcapp/t2meta/flo_new_music/music_100k/'),
+                        help='directory to load checkpoint') 
+    parser.add_argument('--device', type=str, default='cuda',
+                             help='cpu or cuda')
+    args = parser.parse_args()
+
     selected_100, selected_900 = load_meta_from_excel()
     humming_db = HummingDB('/home/svcapp/userdata/humming_db', '/home/svcapp/userdata/flo_data_backup/', selected_100, selected_900)
     # contour_pairs = [humming_db[i] for i in range(len(humming_db))]

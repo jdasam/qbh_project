@@ -15,13 +15,13 @@ if __name__ == '__main__':
                         help='directory to load checkpoint')
     parser.add_argument('--dataset_dir', type=Path, 
                         default= Path('/home/svcapp/t2meta/flo_new_music/music_100k/'),
-                        help='directory to load checkpoint') 
+                        help='directory to load data') 
     parser.add_argument('--meta_dat_path', type=str, 
                     default= 'data/flo_metadata_220k.dat',
-                    help='directory to load checkpoint')
+                    help='metadata dat file path')
     parser.add_argument('--humm_db_ids_path', type=str, 
                 default= 'data/humm_db_ids.dat',
-                help='directory to load checkpoint')       
+                help='humming ids dat path')       
     parser.add_argument('--device', type=str, default='cuda',
                              help='cpu or cuda')
     args = parser.parse_args()

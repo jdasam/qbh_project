@@ -4,6 +4,7 @@ This is an implementation of Query-by-Humming with melody embedding DNN by Dasae
 
 Pre-trained weight and humming data is available on [Google Drive](https://drive.google.com/drive/folders/1qrc5S2plEEQtMU_8RXmbG4q-enzqhadE?usp=sharing)
 
+
 Contact: dasaem.jeong@sktbrain.com
 
 ---
